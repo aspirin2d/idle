@@ -21,4 +21,10 @@ export const cast = pgTable("cast", {
 
   // duration per claim/tick in milliseconds
   claimInterval: integer("claim_interval").notNull(),
+
+  // when set, the cast has been suspended/ended
+  endedAt: timestamp("ended_at", {
+    mode: "string",
+    withTimezone: true,
+  }),
 });
