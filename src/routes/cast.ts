@@ -1,8 +1,8 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import z from "zod";
 import db from "../db/index.js";
 import { cast } from "../db/schema.js";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 /* ----------------------------- ENV ----------------------------- */
 
@@ -75,12 +75,17 @@ async function getActive(): Promise<CastRow | null> {
   const rows = await db
     .select()
     .from(cast)
+    .where(isNull(cast.endedAt))
     .orderBy(desc(cast.startedAt))
     .limit(1);
   return rows[0] ?? null;
 }
 function etagFor(row: CastRow): string {
   return `W/"${row.id}:${row.claimed}:${toMs(row.startedAt)}"`;
+}
+
+function sendError(c: Context, message: string, status: number) {
+  return c.json({ error: { message } }, status);
 }
 
 /* ----------------------------- Demo data ----------------------------- */
@@ -120,8 +125,9 @@ group.post("/", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = startSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid body" },
+    return sendError(
+      c,
+      parsed.error.issues[0]?.message ?? "Invalid body",
       400,
     );
   }
@@ -131,15 +137,18 @@ group.post("/", async (c) => {
 
   const skill = SkillMap[skillId];
   const target = TargetMap[targetId];
-  if (!skill) return c.json({ error: `Unknown skill: ${skillId}` }, 404);
-  if (!target) return c.json({ error: `Unknown target: ${targetId}` }, 404);
+  if (!skill) return sendError(c, `Unknown skill: ${skillId}`, 404);
+  if (!target) return sendError(c, `Unknown target: ${targetId}`, 404);
 
   // Pick default from env if not provided
   const effectiveClaimMax: number | null =
     reqClaimMax === undefined ? DEFAULT_CLAIM_MAX : reqClaimMax;
 
   const row = await db.transaction(async (tx) => {
-    await tx.delete(cast);
+    await tx
+      .update(cast)
+      .set({ endedAt: nowIso })
+      .where(isNull(cast.endedAt));
     const [created] = await tx
       .insert(cast)
       .values({
@@ -178,14 +187,17 @@ group.post("/", async (c) => {
 
 // Cancel current cast
 group.delete("/", async (c) => {
-  await db.delete(cast);
-  return c.body(null, 204);
+  await db
+    .update(cast)
+    .set({ endedAt: new Date().toISOString() })
+    .where(isNull(cast.endedAt));
+  return c.json({ data: null }, 200);
 });
 
 // Poll current cast
 group.get("/", async (c) => {
   const row = await getActive();
-  if (!row) return c.json({ error: "no active cast" }, 404);
+  if (!row) return sendError(c, "no active cast", 404);
 
   const atStart = Date.now();
 
@@ -259,7 +271,7 @@ group.get("/", async (c) => {
 // Claim ready ticks (default claim-all). Optional ?limit=N
 group.post("/claim", async (c) => {
   const row = await getActive();
-  if (!row) return c.json({ error: "no active cast" }, 404);
+  if (!row) return sendError(c, "no active cast", 404);
 
   const atMs = Date.now();
   const available = availableRuns(row, atMs);
@@ -299,7 +311,7 @@ group.post("/claim", async (c) => {
     .where(and(eq(cast.id, row.id), eq(cast.claimed, row.claimed)))
     .returning();
 
-  if (!updated) return c.json({ error: "conflict, retry" }, 409);
+  if (!updated) return sendError(c, "conflict, retry", 409);
 
   const remaining =
     updated.claimMax == null
