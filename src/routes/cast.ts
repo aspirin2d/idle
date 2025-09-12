@@ -3,6 +3,7 @@ import z from "zod";
 import db from "../db/index.js";
 import { cast } from "../db/schema.js";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 /* ----------------------------- ENV ----------------------------- */
 
@@ -84,7 +85,7 @@ function etagFor(row: CastRow): string {
   return `W/"${row.id}:${row.claimed}:${toMs(row.startedAt)}"`;
 }
 
-function sendError(c: Context, message: string, status: number) {
+function sendError(c: Context, message: string, status: ContentfulStatusCode) {
   return c.json({ error: { message } }, status);
 }
 
@@ -125,11 +126,7 @@ group.post("/", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = startSchema.safeParse(body);
   if (!parsed.success) {
-    return sendError(
-      c,
-      parsed.error.issues[0]?.message ?? "Invalid body",
-      400,
-    );
+    return sendError(c, parsed.error.issues[0]?.message ?? "Invalid body", 400);
   }
 
   const { skillId, targetId } = parsed.data;
@@ -145,10 +142,7 @@ group.post("/", async (c) => {
     reqClaimMax === undefined ? DEFAULT_CLAIM_MAX : reqClaimMax;
 
   const row = await db.transaction(async (tx) => {
-    await tx
-      .update(cast)
-      .set({ endedAt: nowIso })
-      .where(isNull(cast.endedAt));
+    await tx.update(cast).set({ endedAt: nowIso }).where(isNull(cast.endedAt));
     const [created] = await tx
       .insert(cast)
       .values({
