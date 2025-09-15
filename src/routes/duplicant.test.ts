@@ -65,5 +65,29 @@ describe('duplicantRoute', () => {
     expect(await res.json()).toEqual({ id: 'd1', name: 'Ada', scheduleId: 'default' });
     expect(valuesSpy).toHaveBeenCalledWith({ name: 'Ada', scheduleId: 'default' });
   });
+
+  it('POST / uses provided schedule id when supplied', async () => {
+    insertMock.mockReturnValue({
+      values: (v: any) => {
+        valuesSpy(v);
+        return {
+          returning: () => Promise.resolve([{ id: 'd2', ...v }]),
+        };
+      },
+    });
+
+    const app = new Hono();
+    app.route('/', duplicantRoute);
+
+    const res = await app.request('/', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Bert', scheduleId: 'custom' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ id: 'd2', name: 'Bert', scheduleId: 'custom' });
+    expect(valuesSpy).toHaveBeenCalledWith({ name: 'Bert', scheduleId: 'custom' });
+  });
 });
 

@@ -86,6 +86,33 @@ describe('taskRoute', () => {
     });
   });
 
+  it('POST /duplicants/:id/tasks applies defaults when fields omitted', async () => {
+    insertMock.mockReturnValue({
+      values: (v: any) => ({
+        returning: () => Promise.resolve([{ id: 't2', ...v }]),
+      }),
+    });
+
+    const app = new Hono();
+    app.route('/', taskRoute);
+
+    const res = await app.request('/duplicants/d1/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ description: 'Sweep', duration: 1 }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({
+      id: 't2',
+      duplicantId: 'd1',
+      description: 'Sweep',
+      duration: 1,
+      priority: 5,
+      status: 'pending',
+    });
+  });
+
   it('PATCH /tasks/:taskId updates a task', async () => {
     const returningMock = vi.fn().mockResolvedValue([
       {
@@ -122,6 +149,51 @@ describe('taskRoute', () => {
       duration: 3,
       priority: 7,
       status: 'complete',
+    });
+    expect(updateMock).toHaveBeenCalledWith(task);
+  });
+
+  it('PATCH /tasks/:taskId updates all provided fields', async () => {
+    const returningMock = vi.fn().mockResolvedValue([
+      {
+        id: 't2',
+        duplicantId: 'd1',
+        description: 'Build ladder',
+        duration: 4,
+        priority: 8,
+        status: 'in-progress',
+      },
+    ]);
+    updateMock.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningMock,
+        }),
+      }),
+    });
+
+    const app = new Hono();
+    app.route('/', taskRoute);
+
+    const res = await app.request('/tasks/t2', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        description: 'Build ladder',
+        status: 'in-progress',
+        duration: 4,
+        priority: 8,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      id: 't2',
+      duplicantId: 'd1',
+      description: 'Build ladder',
+      duration: 4,
+      priority: 8,
+      status: 'in-progress',
     });
     expect(updateMock).toHaveBeenCalledWith(task);
   });
