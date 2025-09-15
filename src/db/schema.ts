@@ -9,6 +9,18 @@ export const scheduleActivityEnum = pgEnum("schedule_activity", [
   "bathtime",
 ]);
 
+export const taskStatusEnum = pgEnum("task_status", [
+  "pending",
+  "in-progress",
+  "complete",
+]);
+
+export const TASK_STATUS = {
+  PENDING: "pending",
+  IN_PROGRESS: "in-progress",
+  COMPLETE: "complete",
+} as const;
+
 export const schedule = pgTable("schedule", {
   id: text("id")
     .primaryKey()
@@ -37,7 +49,7 @@ export const task = pgTable("task", {
   description: text("description").notNull(),
   priority: integer("priority").notNull().default(5),
   duration: integer("duration").notNull(),
-  status: text("status").notNull().default("pending"),
+  status: taskStatusEnum("status").notNull().default(TASK_STATUS.PENDING),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
@@ -71,3 +83,4 @@ export type NewTask = typeof task.$inferInsert;
 export type Schedule = typeof schedule.$inferSelect;
 export type NewSchedule = typeof schedule.$inferInsert;
 export type ScheduleActivity = (typeof scheduleActivityEnum.enumValues)[number];
+export type TaskStatus = (typeof taskStatusEnum.enumValues)[number];
