@@ -33,7 +33,8 @@ export const duplicant = pgTable("duplicant", {
     .primaryKey()
     .$defaultFn(() => nanoid()),
   name: text("name").notNull(),
-  scheduleId: text("schedule_id").references(() => schedule.id),
+  schedule: text("schedule_id").references(() => schedule.id),
+  task: text("taske_id").references(() => schedule.id),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
@@ -43,13 +44,8 @@ export const task = pgTable("task", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => nanoid()),
-  duplicantId: text("duplicant_id")
-    .notNull()
-    .references(() => duplicant.id),
+  duplicant: text("duplicant_id").references(() => duplicant.id),
   description: text("description").notNull(),
-  priority: integer("priority").notNull().default(5),
-  duration: integer("duration").notNull(),
-  status: taskStatusEnum("status").notNull().default(TASK_STATUS.PENDING),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
@@ -59,17 +55,20 @@ export const scheduleRelations = relations(schedule, ({ many }) => ({
   duplicants: many(duplicant),
 }));
 
-export const duplicantRelations = relations(duplicant, ({ one, many }) => ({
+export const duplicantRelations = relations(duplicant, ({ one }) => ({
   schedule: one(schedule, {
-    fields: [duplicant.scheduleId],
+    fields: [duplicant.schedule],
     references: [schedule.id],
   }),
-  tasks: many(task),
+  tasks: one(task, {
+    fields: [duplicant.task],
+    references: [task.id],
+  }),
 }));
 
 export const taskRelations = relations(task, ({ one }) => ({
   duplicant: one(duplicant, {
-    fields: [task.duplicantId],
+    fields: [task.duplicant],
     references: [duplicant.id],
   }),
 }));

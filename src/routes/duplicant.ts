@@ -16,7 +16,7 @@ duplicantRoute.post("/", async (c) => {
     .insert(duplicant)
     .values({
       name: body.name,
-      scheduleId: body.scheduleId ?? DEFAULT_SCHEDULE_ID,
+      schedule: body.schedule ?? DEFAULT_SCHEDULE_ID,
     })
     .returning();
   return c.json(created, 201);
