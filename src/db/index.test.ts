@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { selectMock, insertMock, valuesSpy } = vi.hoisted(() => ({
   selectMock: vi.fn(),
@@ -6,23 +6,27 @@ const { selectMock, insertMock, valuesSpy } = vi.hoisted(() => ({
   valuesSpy: vi.fn(),
 }));
 
-vi.mock('@electric-sql/pglite', () => ({ PGlite: vi.fn() }));
-vi.mock('drizzle-orm/pglite', () => ({
+vi.mock("@electric-sql/pglite", () => ({ PGlite: vi.fn() }));
+vi.mock("drizzle-orm/pglite", () => ({
   drizzle: () => ({ select: selectMock, insert: insertMock }),
 }));
-vi.mock('drizzle-orm', () => ({ eq: () => 'eq' }));
-vi.mock('./schema.js', () => ({ schedule: { id: 'id' } }));
+vi.mock("drizzle-orm", () => ({ eq: () => "eq" }));
+vi.mock("./schema.js", () => ({ schedule: { id: "id" } }));
 
-import { ensureDefaultSchedule, DEFAULT_SCHEDULE_ID, DEFAULT_SCHEDULE_ACTIVITIES } from './index';
+import {
+  ensureDefaultSchedule,
+  DEFAULT_SCHEDULE_ID,
+  DEFAULT_SCHEDULE_ACTIVITIES,
+} from "./index.js";
 
-describe('ensureDefaultSchedule', () => {
+describe("ensureDefaultSchedule", () => {
   beforeEach(() => {
     selectMock.mockReset();
     insertMock.mockReset();
     valuesSpy.mockReset();
   });
 
-  it('inserts default schedule when missing', async () => {
+  it("inserts default schedule when missing", async () => {
     selectMock.mockReturnValue({
       from: () => ({ where: () => Promise.resolve([]) }),
     });
@@ -31,14 +35,14 @@ describe('ensureDefaultSchedule', () => {
 
     await ensureDefaultSchedule();
 
-    expect(insertMock).toHaveBeenCalledWith({ id: 'id' });
+    expect(insertMock).toHaveBeenCalledWith({ id: "id" });
     expect(valuesSpy).toHaveBeenCalledWith({
       id: DEFAULT_SCHEDULE_ID,
       activities: DEFAULT_SCHEDULE_ACTIVITIES,
     });
   });
 
-  it('does nothing when schedule exists', async () => {
+  it("does nothing when schedule exists", async () => {
     selectMock.mockReturnValue({
       from: () => ({
         where: () => Promise.resolve([{ id: DEFAULT_SCHEDULE_ID }]),
@@ -50,4 +54,3 @@ describe('ensureDefaultSchedule', () => {
     expect(insertMock).not.toHaveBeenCalled();
   });
 });
-

@@ -20,9 +20,10 @@ taskRoute.get("/duplicants/:id/tasks", async (c) => {
 // POST /duplicants/:id/tasks
 taskRoute.post("/duplicants/:id/tasks", async (c) => {
   const duplicantId = c.req.param("id");
-  const body = await c.req.json<
-    Pick<NewTask, "description" | "status" | "duration" | "priority">
-  >();
+  const body =
+    await c.req.json<
+      Pick<NewTask, "description" | "status" | "duration" | "priority">
+    >();
   const [created] = await db
     .insert(task)
     .values({
@@ -39,9 +40,10 @@ taskRoute.post("/duplicants/:id/tasks", async (c) => {
 // PATCH /tasks/:taskId
 taskRoute.patch("/tasks/:taskId", async (c) => {
   const taskId = c.req.param("taskId");
-  const body = await c.req.json<
-    Partial<Pick<NewTask, "description" | "status" | "duration" | "priority">>
-  >();
+  const body =
+    await c.req.json<
+      Partial<Pick<NewTask, "description" | "status" | "duration" | "priority">>
+    >();
   const updateData: Record<string, any> = {};
   if (body.description !== undefined) updateData.description = body.description;
   if (body.status !== undefined) updateData.status = body.status;

@@ -5,7 +5,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "vitest run"
+    "test": "vitest run --root ./src"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.8",
