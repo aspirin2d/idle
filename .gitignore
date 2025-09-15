@@ -11,7 +11,6 @@
 # deps
 node_modules/
 dist/
-:memory:
 
 # env
 .env
