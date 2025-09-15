@@ -10,18 +10,11 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 const RawEnv = {
   CAST_UNLIMITED_CAP: process.env.CAST_UNLIMITED_CAP,
   CAST_DEFAULT_CLAIM_MAX: process.env.CAST_DEFAULT_CLAIM_MAX, // "null"|"unlimited"|number
-  CAST_PREFER_WAIT_MAX_MS: process.env.CAST_PREFER_WAIT_MAX_MS,
   CAST_MIN_CLAIM_INTERVAL_MS: process.env.CAST_MIN_CLAIM_INTERVAL_MS,
 };
 
 const EnvSchema = z.object({
   CAST_UNLIMITED_CAP: z.coerce.number().int().positive().default(1000),
-  CAST_PREFER_WAIT_MAX_MS: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(60_000)
-    .default(10_000),
   CAST_MIN_CLAIM_INTERVAL_MS: z.coerce.number().int().min(1).default(250),
 });
 const baseEnv = EnvSchema.parse(RawEnv);
@@ -37,7 +30,6 @@ const DEFAULT_CLAIM_MAX: number | null = (() => {
 })();
 
 const UNLIMITED_CAP = baseEnv.CAST_UNLIMITED_CAP; // hard cap for unlimited
-const PREFER_WAIT_MAX_MS = baseEnv.CAST_PREFER_WAIT_MAX_MS; // max wait=ms handled
 const MIN_CLAIM_INTERVAL_MS = baseEnv.CAST_MIN_CLAIM_INTERVAL_MS; // skill.min interval
 
 /* ----------------------------- Helpers ----------------------------- */
@@ -69,9 +61,6 @@ function nextEta(row: CastRow, atMs: number): number {
     ((elapsed % row.claimInterval) + row.claimInterval) % row.claimInterval;
   return row.claimInterval - into;
 }
-function finished(row: CastRow, atMs: number): boolean {
-  return ticksElapsed(row, atMs) >= maxRuns(row);
-}
 async function getActive(): Promise<CastRow | null> {
   const rows = await db
     .select()
@@ -80,9 +69,6 @@ async function getActive(): Promise<CastRow | null> {
     .orderBy(desc(cast.startedAt))
     .limit(1);
   return rows[0] ?? null;
-}
-function etagFor(row: CastRow): string {
-  return `W/"${row.id}:${row.claimed}:${toMs(row.startedAt)}"`;
 }
 
 function sendError(c: Context, message: string, status: ContentfulStatusCode) {
@@ -188,108 +174,40 @@ group.delete("/", async (c) => {
   return c.json({ data: null }, 200);
 });
 
-// Poll current cast
-group.get("/", async (c) => {
-  const row = await getActive();
-  if (!row) return sendError(c, "no active cast", 404);
-
-  const atStart = Date.now();
-
-  // Conditional GET
-  const inm = c.req.header("If-None-Match");
-  const tag = etagFor(row);
-  if (inm && inm === tag) {
-    c.header("ETag", tag);
-    return c.body(null, 304);
-  }
-
-  // Prefer: wait=ms (bounded by env)
-  const prefer = c.req.header("Prefer") || "";
-  const m = /(?:^|,)\s*wait=(\d+)\s*(?:$|,)/i.exec(prefer);
-  const waitMs = clamp(Number(m?.[1] ?? 0), 0, PREFER_WAIT_MAX_MS);
-
-  let eta = nextEta(row, atStart);
-  if (eta > 0 && waitMs > 0) {
-    await new Promise((r) => setTimeout(r, Math.min(eta, waitMs)));
-    eta = nextEta(row, Date.now());
-  }
-
-  const atEnd = Date.now();
-  const available = availableRuns(row, atEnd);
-  const done = finished(row, atEnd);
-
-  c.header("ETag", etagFor(row));
-  c.header("Cache-Control", "no-store");
-
-  if (available === 0) {
-    const retryMs = nextEta(row, atEnd);
-    if (retryMs > 0) {
-      c.header("Retry-After", String(Math.ceil(retryMs / 1000)));
-      c.header("X-Retry-After-Ms", String(retryMs));
-    }
-    return c.json(
-      {
-        data: {
-          id: row.id,
-          eta: retryMs,
-          claimed: row.claimed,
-          claimMax: row.claimMax,
-          claimInterval: row.claimInterval,
-          unlimited: row.claimMax == null,
-          unlimitedCap: UNLIMITED_CAP,
-          finished: done,
-        },
-      },
-      202,
-    );
-  }
-
-  return c.json(
-    {
-      data: {
-        id: row.id,
-        eta: 0,
-        available,
-        claimed: row.claimed,
-        claimMax: row.claimMax,
-        claimInterval: row.claimInterval,
-        unlimited: row.claimMax == null,
-        unlimitedCap: UNLIMITED_CAP,
-        finished: done,
-      },
-    },
-    200,
-  );
-});
-
 // Claim ready ticks (default claim-all). Optional ?limit=N
 group.post("/claim", async (c) => {
   const row = await getActive();
-  if (!row) return sendError(c, "no active cast", 404);
+  if (!row)
+    return c.json(
+      {
+        data: {
+          status: "stopped",
+        },
+      },
+      200,
+    );
 
   const atMs = Date.now();
   const available = availableRuns(row, atMs);
 
   if (available === 0) {
     const eta = nextEta(row, atMs);
-    if (eta > 0) {
-      c.header("Retry-After", String(Math.ceil(eta / 1000)));
-      c.header("X-Retry-After-Ms", String(eta));
-    }
+    const remaining =
+      row.claimMax == null
+        ? Math.max(0, UNLIMITED_CAP - row.claimed)
+        : Math.max(0, maxRuns(row) - row.claimed);
     return c.json(
       {
         data: {
           id: row.id,
           taken: 0,
           totalClaimed: row.claimed,
-          remaining:
-            row.claimMax == null
-              ? Math.max(0, UNLIMITED_CAP - row.claimed)
-              : Math.max(0, maxRuns(row) - row.claimed),
+          remaining,
           eta,
+          status: "paused",
         },
       },
-      202,
+      200,
     );
   }
 
@@ -322,6 +240,7 @@ group.post("/claim", async (c) => {
         totalClaimed: updated.claimed,
         remaining,
         eta,
+        status: "ok",
       },
     },
     200,
