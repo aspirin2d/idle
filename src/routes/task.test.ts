@@ -5,14 +5,17 @@ import { task } from '../db/schema.js';
 
 var selectMock: any;
 var insertMock: any;
+var updateMock: any;
 
 vi.mock('../db/index.js', () => {
   selectMock = vi.fn();
   insertMock = vi.fn();
+  updateMock = vi.fn();
   return {
     default: {
       select: (...args: any[]) => selectMock(...args),
       insert: (...args: any[]) => insertMock(...args),
+      update: (...args: any[]) => updateMock(...args),
     },
   };
 });
@@ -23,6 +26,7 @@ describe('taskRoute', () => {
   beforeEach(() => {
     selectMock.mockReset();
     insertMock.mockReset();
+    updateMock.mockReset();
   });
 
   it('GET /duplicants/:id/tasks returns tasks', async () => {
@@ -80,6 +84,46 @@ describe('taskRoute', () => {
       priority: 7,
       status: 'pending',
     });
+  });
+
+  it('PATCH /tasks/:taskId updates a task', async () => {
+    const returningMock = vi.fn().mockResolvedValue([
+      {
+        id: 't1',
+        duplicantId: 'd1',
+        description: 'Build ladder',
+        duration: 3,
+        priority: 7,
+        status: 'complete',
+      },
+    ]);
+    updateMock.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningMock,
+        }),
+      }),
+    });
+
+    const app = new Hono();
+    app.route('/', taskRoute);
+
+    const res = await app.request('/tasks/t1', {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'complete' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      id: 't1',
+      duplicantId: 'd1',
+      description: 'Build ladder',
+      duration: 3,
+      priority: 7,
+      status: 'complete',
+    });
+    expect(updateMock).toHaveBeenCalledWith(task);
   });
 });
 
