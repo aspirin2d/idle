@@ -72,5 +72,18 @@ describe('scheduleRoute', () => {
 
     expect(res.status).toBe(400);
   });
+
+  it('POST / validates activities is an array', async () => {
+    const app = new Hono();
+    app.route('/', scheduleRoute);
+
+    const res = await app.request('/', {
+      method: 'POST',
+      body: JSON.stringify({ activities: 'not-an-array' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(res.status).toBe(400);
+  });
 });
 
