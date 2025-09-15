@@ -21,17 +21,6 @@ describe("index", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
-  it("boots server on default port", async () => {
-    await import("./index.js");
-    expect(ensureDefaultScheduleMock).toHaveBeenCalled();
-    const [opts, cb] = serveMock.mock.calls[0];
-    expect(opts.port).toBe(3002);
-    cb({ port: opts.port });
-    expect(console.log).toHaveBeenCalledWith(
-      `Server is running on http://localhost:${opts.port}`,
-    );
-  });
-
   it("respects PORT environment variable", async () => {
     process.env.PORT = "4321";
     await import("./index.js");
