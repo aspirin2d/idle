@@ -5,11 +5,13 @@ import { Hono } from "hono";
 
 import duplicantRoute from "./routes/duplicant.js";
 import scheduleRoute from "./routes/schedule.js";
+import taskRoute from "./routes/task.js";
 import { ensureDefaultSchedule } from "./db/index.js";
 
 const api = new Hono();
 api.route("/duplicants", duplicantRoute);
 api.route("/schedules", scheduleRoute);
+api.route("/", taskRoute);
 
 const app = new Hono();
 app.get("/", (c) => {
