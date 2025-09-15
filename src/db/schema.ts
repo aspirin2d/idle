@@ -46,6 +46,8 @@ export const task = pgTable("task", {
     .$defaultFn(() => nanoid()),
   duplicant: text("duplicant_id").references(() => duplicant.id),
   description: text("description").notNull(),
+  skill: text("skill_id").notNull(),
+  target: text("target_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
