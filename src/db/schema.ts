@@ -41,11 +41,7 @@ export const task = pgTable("task", {
   description: text("description").notNull(),
   skill: text("skill_id").notNull(), // skill reference
   target: text("target_id"), // skill target reference
-  duplicant: text("duplicant_id")
-    .notNull()
-    .references(() => duplicant.id, {
-      onDelete: "cascade",
-    }),
+  duplicant: text("duplicant_id").references(() => duplicant.id),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),

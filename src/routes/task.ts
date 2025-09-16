@@ -21,10 +21,9 @@ const taskCreateSchema = taskBaseSchema.extend({
 
 const taskUpdateSchema = taskBaseSchema
   .partial()
-  .refine(
-    (data) => Object.values(data).some((value) => value !== undefined),
-    { message: "At least one field must be provided" },
-  );
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
+    message: "At least one field must be provided",
+  });
 
 export function createTaskRoutes(database: Database = db) {
   const routes = new Hono();
@@ -36,10 +35,7 @@ export function createTaskRoutes(database: Database = db) {
 
   routes.get("/:id", async (c) => {
     const { id } = c.req.param();
-    const result = await database
-      .select()
-      .from(task)
-      .where(eq(task.id, id));
+    const result = await database.select().from(task).where(eq(task.id, id));
     if (result.length === 0) {
       return c.json({ error: "Task not found" }, 404);
     }
