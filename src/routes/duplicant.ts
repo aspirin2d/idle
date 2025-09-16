@@ -36,20 +36,30 @@ export function createDuplicantRoutes(database: Database = db) {
   const routes = new Hono();
 
   routes.get("/", async (c) => {
-    const items = await database.select().from(duplicant);
+    const items = await database.query.duplicant.findMany({
+      with: {
+        schedule: true,
+        task: true,
+        stats: true,
+      },
+    });
     return c.json(items);
   });
 
   routes.get("/:id", async (c) => {
     const { id } = c.req.param();
-    const result = await database
-      .select()
-      .from(duplicant)
-      .where(eq(duplicant.id, id));
-    if (result.length === 0) {
+    const result = await database.query.duplicant.findFirst({
+      where: (duplicants, { eq }) => eq(duplicants.id, id),
+      with: {
+        schedule: true,
+        task: true,
+        stats: true,
+      },
+    });
+    if (!result) {
       return c.json({ error: "Duplicant not found" }, 404);
     }
-    return c.json(result[0]);
+    return c.json(result);
   });
 
   routes.post("/", async (c) => {

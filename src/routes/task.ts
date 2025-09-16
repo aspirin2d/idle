@@ -29,17 +29,26 @@ export function createTaskRoutes(database: Database = db) {
   const routes = new Hono();
 
   routes.get("/", async (c) => {
-    const items = await database.select().from(task);
+    const items = await database.query.task.findMany({
+      with: {
+        duplicants: true,
+      },
+    });
     return c.json(items);
   });
 
   routes.get("/:id", async (c) => {
     const { id } = c.req.param();
-    const result = await database.select().from(task).where(eq(task.id, id));
-    if (result.length === 0) {
+    const result = await database.query.task.findFirst({
+      where: (tasks, { eq }) => eq(tasks.id, id),
+      with: {
+        duplicants: true,
+      },
+    });
+    if (!result) {
       return c.json({ error: "Task not found" }, 404);
     }
-    return c.json(result[0]);
+    return c.json(result);
   });
 
   routes.post("/", async (c) => {
