@@ -1,4 +1,10 @@
-import { pgEnum, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  smallint,
+} from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -35,9 +41,26 @@ export const task = pgTable("task", {
   description: text("description").notNull(),
   skill: text("skill_id").notNull(), // skill reference
   target: text("target_id"), // skill target reference
+  duplicant: text("duplicant_id")
+    .notNull()
+    .references(() => duplicant.id, {
+      onDelete: "cascade",
+    }),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
+});
+
+export const stats = pgTable("stats", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => nanoid()),
+  stamina: smallint("stamina").notNull(),
+  calories: smallint("calories").notNull(),
+  bladder: smallint("bladder").notNull(),
+  duplicant: text("duplicant_id").references(() => duplicant.id, {
+    onDelete: "cascade",
+  }),
 });
 
 export const duplicant = pgTable("duplicant", {
@@ -45,8 +68,9 @@ export const duplicant = pgTable("duplicant", {
     .primaryKey()
     .$defaultFn(() => nanoid()),
   name: text("name").notNull(),
-  task: text("taske_id").references(() => task.id), // assigned task
-  schedule: text("schedule_id").references(() => schedule.id), // assigned schedule
+  task: text("taske_id").notNull(), // assigned task
+  schedule: text("schedule_id").notNull(),
+  stats: text("stats_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
@@ -68,6 +92,10 @@ export const duplicantRelations = relations(duplicant, ({ one }) => ({
   task: one(task, {
     fields: [duplicant.task],
     references: [task.id],
+  }),
+  stats: one(stats, {
+    fields: [duplicant.stats],
+    references: [stats.id],
   }),
 }));
 

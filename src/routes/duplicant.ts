@@ -21,10 +21,9 @@ const duplicantCreateSchema = duplicantBaseSchema.extend({
 
 const duplicantUpdateSchema = duplicantBaseSchema
   .partial()
-  .refine(
-    (data) => Object.values(data).some((value) => value !== undefined),
-    { message: "At least one field must be provided" },
-  );
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
+    message: "At least one field must be provided",
+  });
 
 export function createDuplicantRoutes(database: Database = db) {
   const routes = new Hono();
