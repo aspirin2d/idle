@@ -1,4 +1,4 @@
-import { pgEnum, pgTable, text, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgEnum, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -28,26 +28,25 @@ export const schedule = pgTable("schedule", {
   activities: scheduleActivityEnum("activities").array(24).notNull(),
 });
 
-export const duplicant = pgTable("duplicant", {
+export const task = pgTable("task", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => nanoid()),
-  name: text("name").notNull(),
-  schedule: text("schedule_id").references(() => schedule.id),
-  task: text("taske_id").references(() => schedule.id),
+  description: text("description").notNull(),
+  skill: text("skill_id").notNull(), // skill reference
+  target: text("target_id"), // skill target reference
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
 });
 
-export const task = pgTable("task", {
+export const duplicant = pgTable("duplicant", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => nanoid()),
-  duplicant: text("duplicant_id").references(() => duplicant.id),
-  description: text("description").notNull(),
-  skill: text("skill_id").notNull(),
-  target: text("target_id").notNull(),
+  name: text("name").notNull(),
+  task: text("taske_id").references(() => task.id), // assigned task
+  schedule: text("schedule_id").references(() => schedule.id), // assigned schedule
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
@@ -57,21 +56,18 @@ export const scheduleRelations = relations(schedule, ({ many }) => ({
   duplicants: many(duplicant),
 }));
 
+export const taskRelation = relations(task, ({ one }) => ({
+  duplicant: one(duplicant),
+}));
+
 export const duplicantRelations = relations(duplicant, ({ one }) => ({
   schedule: one(schedule, {
     fields: [duplicant.schedule],
     references: [schedule.id],
   }),
-  tasks: one(task, {
+  task: one(task, {
     fields: [duplicant.task],
     references: [task.id],
-  }),
-}));
-
-export const taskRelations = relations(task, ({ one }) => ({
-  duplicant: one(duplicant, {
-    fields: [task.duplicant],
-    references: [duplicant.id],
   }),
 }));
 
