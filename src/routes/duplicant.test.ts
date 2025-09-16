@@ -209,6 +209,23 @@ describe("duplicant routes", () => {
     expect(database.insert).not.toHaveBeenCalled();
   });
 
+  it("rejects invalid duplicant updates", async () => {
+    const database = createMockDb();
+    const routes = createDuplicantRoutes(database as never);
+
+    const res = await routes.request("/dup-1", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "Invalid duplicant payload",
+    });
+    expect(database.update).not.toHaveBeenCalled();
+  });
+
   it("updates a duplicant", async () => {
     const database = createMockDb();
     const updated = {
