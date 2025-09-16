@@ -39,16 +39,59 @@ export const TASK_STATUS = {
   COMPLETE: "complete",
 } as const;
 
+// item_def
 export const itemDef = pgTable("item_def", {
-  // use external JSON file IDs as canonical keys
-  id: text("id").primaryKey(), // e.g. "wood", "iron_ore", "fish_raw"
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
   category: itemCategoryEnum("category").notNull(),
-  // stack + weight kept smallint for pglite friendliness
   stackMax: smallint("stack_max").notNull().default(1),
   weight: smallint("weight").notNull().default(0),
-  // arbitrary structured attributes from the JSON
   data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+  metadata: jsonb("metadata") // ← NEW
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
+  createdAt: timestamp("created_at", { withTimezone: false })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: false })
+    .notNull()
+    .defaultNow(),
+});
+
+// skill_def
+export const skillDef = pgTable("skill_def", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  priority: smallint("priority").notNull().default(0),
+  requirements: jsonb("requirements")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
+  metadata: jsonb("metadata") // ← NEW
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
+  createdAt: timestamp("created_at", { withTimezone: false })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: false })
+    .notNull()
+    .defaultNow(),
+});
+
+// skill_target_def
+export const skillTargetDef = pgTable("skill_target_def", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  requirements: jsonb("requirements")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
+  metadata: jsonb("metadata") // ← NEW
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
   createdAt: timestamp("created_at", { withTimezone: false })
     .notNull()
     .defaultNow(),
@@ -188,3 +231,9 @@ export type NewItemDef = typeof itemDef.$inferInsert;
 
 export type DuplicantInventory = typeof duplicantInventory.$inferSelect;
 export type NewDuplicantInventory = typeof duplicantInventory.$inferInsert;
+
+export type SkillDef = typeof skillDef.$inferSelect;
+export type NewSkillDef = typeof skillDef.$inferInsert;
+
+export type SkillTargetDef = typeof skillTargetDef.$inferSelect;
+export type NewSkillTargetDef = typeof skillTargetDef.$inferInsert;

@@ -26,7 +26,7 @@ export const ItemDefSchema = z.object({
     .default({ max: 1 }),
   weight: z.number().int().min(0).max(30_000).default(0),
   // free-form extra properties (effects, flavor, rarity, etc.)
-  data: z.record(z.string(), z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
 // Accept either a flat array or `{ items: [...] }`
@@ -52,7 +52,7 @@ export function toNewItemDef(i: ParsedItemDef): NewItemDef {
     category: i.category,
     stackMax: i.stack.max,
     weight: i.weight,
-    data: i.data,
+    metadata: i.metadata,
   };
 }
 /**
@@ -121,7 +121,7 @@ export async function syncItemDefsFromFile(
         category: sql`excluded.category`,
         stackMax: sql`excluded.stack_max`,
         weight: sql`excluded.weight`,
-        data: sql`excluded.data`,
+        metadata: sql`excluded.metadata`,
         updatedAt: new Date(), // keep timestamps consistent
       },
     });

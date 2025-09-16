@@ -1,0 +1,10 @@
+{
+  "targets": [
+    {
+      "id": "rock_small",
+      "name": "Small Rock",
+      "requirements": { "hardness": 1 },
+      "metadata": { "zone": "A1" }
+    }
+  ]
+}
