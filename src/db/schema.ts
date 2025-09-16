@@ -77,12 +77,12 @@ export const duplicantInventory = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => ({
+  (t) => [
     // one stack per (duplicant, slot)
-    uniqDupSlot: uniqueIndex("uniq_dup_slot").on(t.duplicantId, t.slot),
-    idxDup: index("idx_dup_inv_dup").on(t.duplicantId),
-    idxItem: index("idx_dup_inv_item").on(t.itemId),
-  }),
+    uniqueIndex("uniq_dup_slot").on(t.duplicantId, t.slot),
+    index("idx_dup_inv_dup").on(t.duplicantId),
+    index("idx_dup_inv_item").on(t.itemId),
+  ],
 );
 
 export const schedule = pgTable("schedule", {
