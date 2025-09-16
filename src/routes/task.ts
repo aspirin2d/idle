@@ -55,8 +55,8 @@ export function createTaskRoutes(database: Database = db) {
     const { id, ...rest } = parsed.data;
     const values: NewTask = {
       description: rest.description,
-      skill: rest.skill,
-      target: rest.target ?? null,
+      skillId: rest.skill,
+      targetId: rest.target ?? null,
     };
     if (id) {
       values.id = id;

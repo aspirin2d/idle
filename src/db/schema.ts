@@ -4,6 +4,9 @@ import {
   text,
   timestamp,
   smallint,
+  jsonb,
+  index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -21,11 +24,66 @@ export const taskStatusEnum = pgEnum("task_status", [
   "complete",
 ]);
 
+export const itemCategoryEnum = pgEnum("item_category", [
+  "material",
+  "consumable",
+  "tool",
+  "equipment",
+  "quest",
+  "junk",
+]);
+
 export const TASK_STATUS = {
   PENDING: "pending",
   IN_PROGRESS: "in-progress",
   COMPLETE: "complete",
 } as const;
+
+export const itemDef = pgTable("item_def", {
+  // use external JSON file IDs as canonical keys
+  id: text("id").primaryKey(), // e.g. "wood", "iron_ore", "fish_raw"
+  name: text("name").notNull(),
+  category: itemCategoryEnum("category").notNull(),
+  // stack + weight kept smallint for pglite friendliness
+  stackMax: smallint("stack_max").notNull().default(1),
+  weight: smallint("weight").notNull().default(0),
+  // arbitrary structured attributes from the JSON
+  data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: false })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: false })
+    .notNull()
+    .defaultNow(),
+});
+
+export const duplicantInventory = pgTable(
+  "inventory",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => nanoid()),
+    duplicantId: text("duplicant_id")
+      .notNull()
+      .references(() => duplicant.id, { onDelete: "cascade" }),
+    slot: smallint("slot").notNull(), // 0-based slot index
+    itemId: text("item_id")
+      .notNull()
+      .references(() => itemDef.id, { onDelete: "restrict" }),
+    qty: smallint("qty").notNull().default(1), // 1..stackMax
+    // optional for tools/equipment
+    durability: smallint("durability"),
+    createdAt: timestamp("created_at", { withTimezone: false })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    // one stack per (duplicant, slot)
+    uniqDupSlot: uniqueIndex("uniq_dup_slot").on(t.duplicantId, t.slot),
+    idxDup: index("idx_dup_inv_dup").on(t.duplicantId),
+    idxItem: index("idx_dup_inv_item").on(t.itemId),
+  }),
+);
 
 export const schedule = pgTable("schedule", {
   id: text("id")
@@ -39,9 +97,9 @@ export const task = pgTable("task", {
     .primaryKey()
     .$defaultFn(() => nanoid()),
   description: text("description").notNull(),
-  skill: text("skill_id").notNull(), // skill reference
-  target: text("target_id"), // skill target reference
-  duplicant: text("duplicant_id").references(() => duplicant.id),
+  skillId: text("skill_id").notNull(), // skill reference
+  targetId: text("target_id"), // skill target reference
+  duplicantId: text("duplicant_id").references(() => duplicant.id),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
@@ -54,7 +112,7 @@ export const stats = pgTable("stats", {
   stamina: smallint("stamina").notNull(),
   calories: smallint("calories").notNull(),
   bladder: smallint("bladder").notNull(),
-  duplicant: text("duplicant_id").references(() => duplicant.id, {
+  duplicantId: text("duplicant_id").references(() => duplicant.id, {
     onDelete: "cascade",
   }),
 });
@@ -64,33 +122,51 @@ export const duplicant = pgTable("duplicant", {
     .primaryKey()
     .$defaultFn(() => nanoid()),
   name: text("name").notNull(),
-  task: text("taske_id").notNull(), // assigned task
-  schedule: text("schedule_id").notNull(),
-  stats: text("stats_id").notNull(),
+  taskId: text("task_id").notNull(), // assigned task
+  scheduleId: text("schedule_id").notNull(),
+  statsId: text("stats_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
 });
 
+export const itemDefRelations = relations(itemDef, ({ many }) => ({
+  stacks: many(duplicantInventory),
+}));
+
+export const duplicantInventoryRelations = relations(
+  duplicantInventory,
+  ({ one }) => ({
+    duplicant: one(duplicant, {
+      fields: [duplicantInventory.duplicantId],
+      references: [duplicant.id],
+    }),
+    item: one(itemDef, {
+      fields: [duplicantInventory.itemId],
+      references: [itemDef.id],
+    }),
+  }),
+);
+
 export const scheduleRelations = relations(schedule, ({ many }) => ({
   duplicants: many(duplicant),
 }));
 
-export const taskRelation = relations(task, ({ one }) => ({
-  duplicant: one(duplicant),
+export const taskRelation = relations(task, ({ many }) => ({
+  duplicants: many(duplicant),
 }));
 
 export const duplicantRelations = relations(duplicant, ({ one }) => ({
   schedule: one(schedule, {
-    fields: [duplicant.schedule],
+    fields: [duplicant.scheduleId],
     references: [schedule.id],
   }),
   task: one(task, {
-    fields: [duplicant.task],
+    fields: [duplicant.taskId],
     references: [task.id],
   }),
   stats: one(stats, {
-    fields: [duplicant.stats],
+    fields: [duplicant.statsId],
     references: [stats.id],
   }),
 }));
@@ -105,3 +181,10 @@ export type Schedule = typeof schedule.$inferSelect;
 export type NewSchedule = typeof schedule.$inferInsert;
 export type ScheduleActivity = (typeof scheduleActivityEnum.enumValues)[number];
 export type TaskStatus = (typeof taskStatusEnum.enumValues)[number];
+
+export type ItemCategory = (typeof itemCategoryEnum.enumValues)[number];
+export type ItemDef = typeof itemDef.$inferSelect;
+export type NewItemDef = typeof itemDef.$inferInsert;
+
+export type DuplicantInventory = typeof duplicantInventory.$inferSelect;
+export type NewDuplicantInventory = typeof duplicantInventory.$inferInsert;

@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import db from "../db/index.js";
-import { duplicant } from "../db/schema.js";
+import db, { DEFAULT_IDLE_TASK_ID, DEFAULT_SCHEDULE_ID } from "../db/index.js";
+import { duplicant, stats } from "../db/schema.js";
 import type { NewDuplicant } from "../db/schema.js";
 import { parseRequestBody, removeUndefined } from "./utils.js";
 
@@ -24,6 +24,13 @@ const duplicantUpdateSchema = duplicantBaseSchema
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
     message: "At least one field must be provided",
   });
+
+/** Defaults for a brand-new duplicant’s stats */
+const DEFAULT_STATS = {
+  stamina: 100,
+  calories: 4000,
+  bladder: 0,
+} as const;
 
 export function createDuplicantRoutes(database: Database = db) {
   const routes = new Hono();
@@ -51,25 +58,74 @@ export function createDuplicantRoutes(database: Database = db) {
       duplicantCreateSchema,
       "Invalid duplicant payload",
     );
-    if (!parsed.success) {
-      return parsed.response;
-    }
+    if (!parsed.success) return parsed.response;
 
     const { id, ...rest } = parsed.data;
-    const values: NewDuplicant = {
+
+    // Default to the global "idle" task when not provided
+    const dupValuesBase: Omit<NewDuplicant, "statsId"> = {
       name: rest.name,
-      task: rest.task ?? null,
-      schedule: rest.schedule ?? null,
+      taskId: rest.task ?? DEFAULT_IDLE_TASK_ID, // <— changed
+      scheduleId: rest.schedule ?? DEFAULT_SCHEDULE_ID,
     };
-    if (id) {
-      values.id = id;
+
+    const hasTx = typeof (database as any).transaction === "function";
+
+    if (hasTx) {
+      const created = await (database as any).transaction(
+        async (tx: Database) => {
+          const [createdStats] = await tx
+            .insert(stats)
+            .values(DEFAULT_STATS)
+            .returning();
+
+          const dupValues: NewDuplicant = {
+            ...dupValuesBase,
+            statsId: createdStats.id,
+            ...(id ? { id } : {}),
+          };
+
+          const [insertedDup] = await tx
+            .insert(duplicant)
+            .values(dupValues)
+            .returning();
+
+          // Link stats → duplicant (avoid orphaned stats row)
+          await tx
+            .update(stats)
+            .set({ duplicantId: insertedDup.id })
+            .where(eq(stats.id, createdStats.id));
+
+          return insertedDup;
+        },
+      );
+      return c.json(created, 201);
     }
 
-    const inserted = await database
-      .insert(duplicant)
-      .values(values)
+    // Fallback (non-transactional)
+    const [createdStats] = await (database as Database)
+      .insert(stats)
+      .values(DEFAULT_STATS)
       .returning();
-    return c.json(inserted[0], 201);
+
+    const dupValues: NewDuplicant = {
+      ...dupValuesBase,
+      statsId: createdStats.id,
+      ...(id ? { id } : {}),
+    };
+
+    const [insertedDup] = await (database as Database)
+      .insert(duplicant)
+      .values(dupValues)
+      .returning();
+
+    // Link stats → duplicant even in non-tx path
+    await (database as Database)
+      .update(stats)
+      .set({ duplicantId: insertedDup.id })
+      .where(eq(stats.id, createdStats.id));
+
+    return c.json(insertedDup, 201);
   });
 
   routes.post("/:id", async (c) => {
@@ -83,7 +139,7 @@ export function createDuplicantRoutes(database: Database = db) {
       return parsed.response;
     }
 
-    const updateData: Partial<NewDuplicant> = removeUndefined(parsed.data);
+    const updateData = removeUndefined(parsed.data) as Partial<NewDuplicant>;
     const updated = await database
       .update(duplicant)
       .set(updateData)
