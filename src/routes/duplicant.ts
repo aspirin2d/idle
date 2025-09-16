@@ -9,20 +9,70 @@ import { parseRequestBody, removeUndefined } from "./utils.js";
 
 type Database = typeof db;
 
-const duplicantBaseSchema = z.object({
+const duplicantBaseShape = {
   name: z.string().min(1),
   taskId: z.string().min(1).nullable().optional(),
+  task: z.string().min(1).nullable().optional(),
   scheduleId: z.string().min(1).nullable().optional(),
-});
+  schedule: z.string().min(1).nullable().optional(),
+} as const;
 
-const duplicantCreateSchema = duplicantBaseSchema.extend({
-  id: z.string().min(1).optional(),
-});
+const duplicantBaseObject = z.object(duplicantBaseShape);
 
-const duplicantUpdateSchema = duplicantBaseSchema
+type DuplicantAliasInput = Pick<
+  z.infer<typeof duplicantBaseObject>,
+  "taskId" | "task" | "scheduleId" | "schedule"
+>;
+
+function validateDuplicantAliases(
+  data: DuplicantAliasInput,
+  ctx: z.RefinementCtx,
+) {
+  if (
+    data.taskId !== undefined &&
+    data.task !== undefined &&
+    data.taskId !== data.task
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "task and taskId must match when both provided",
+      path: ["task"],
+    });
+  }
+
+  if (
+    data.scheduleId !== undefined &&
+    data.schedule !== undefined &&
+    data.scheduleId !== data.schedule
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "schedule and scheduleId must match when both provided",
+      path: ["schedule"],
+    });
+  }
+}
+
+const duplicantCreateSchema = duplicantBaseObject
+  .extend({
+    id: z.string().min(1).optional(),
+  })
+  .superRefine((data, ctx) => {
+    validateDuplicantAliases(data, ctx);
+  });
+
+const duplicantUpdateSchema = duplicantBaseObject
   .partial()
-  .refine((data) => Object.values(data).some((value) => value !== undefined), {
-    message: "At least one field must be provided",
+  .superRefine((data, ctx) => {
+    if (!Object.values(data).some((value) => value !== undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one field must be provided",
+        path: [],
+      });
+    }
+
+    validateDuplicantAliases(data, ctx);
   });
 
 /** Defaults for a brand-new duplicant’s stats */
@@ -70,13 +120,27 @@ export function createDuplicantRoutes(database: Database = db) {
     );
     if (!parsed.success) return parsed.response;
 
-    const { id, ...rest } = parsed.data;
+    const { id, taskId, task, scheduleId, schedule, ...rest } = parsed.data;
+
+    const resolvedTaskId =
+      taskId !== undefined
+        ? taskId ?? DEFAULT_IDLE_TASK_ID
+        : task !== undefined
+          ? task ?? DEFAULT_IDLE_TASK_ID
+          : DEFAULT_IDLE_TASK_ID;
+
+    const resolvedScheduleId =
+      scheduleId !== undefined
+        ? scheduleId ?? DEFAULT_SCHEDULE_ID
+        : schedule !== undefined
+          ? schedule ?? DEFAULT_SCHEDULE_ID
+          : DEFAULT_SCHEDULE_ID;
 
     // Default to the global "idle" task when not provided
     const dupValuesBase: Omit<NewDuplicant, "statsId"> = {
       name: rest.name,
-      taskId: rest.taskId ?? DEFAULT_IDLE_TASK_ID, // <— changed
-      scheduleId: rest.scheduleId ?? DEFAULT_SCHEDULE_ID,
+      taskId: resolvedTaskId,
+      scheduleId: resolvedScheduleId,
     };
 
     const hasTx = typeof (database as any).transaction === "function";
@@ -149,7 +213,25 @@ export function createDuplicantRoutes(database: Database = db) {
       return parsed.response;
     }
 
-    const updateData = removeUndefined(parsed.data) as Partial<NewDuplicant>;
+    const { taskId, task, scheduleId, schedule, ...rest } = parsed.data;
+
+    const updateData = removeUndefined(rest) as Partial<NewDuplicant>;
+
+    const resolvedTask =
+      taskId !== undefined ? taskId : task !== undefined ? task : undefined;
+    if (resolvedTask !== undefined) {
+      updateData.taskId = resolvedTask ?? DEFAULT_IDLE_TASK_ID;
+    }
+
+    const resolvedSchedule =
+      scheduleId !== undefined
+        ? scheduleId
+        : schedule !== undefined
+          ? schedule
+          : undefined;
+    if (resolvedSchedule !== undefined) {
+      updateData.scheduleId = resolvedSchedule ?? DEFAULT_SCHEDULE_ID;
+    }
     const updated = await database
       .update(duplicant)
       .set(updateData)

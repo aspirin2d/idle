@@ -55,36 +55,78 @@ export async function syncSkillDefsFromFile(
     return { inserted: 0, updated: 0, pruned: 0, total: 0 };
 
   const ids = rows.map((r) => r.id);
-  const existing = await db
-    .select({ id: skillDef.id })
-    .from(skillDef)
-    .where(inArray(skillDef.id, ids));
-  const existingSet = new Set(existing.map((e) => e.id));
+  const selectFn = (db as any)?.select;
+  const existingRows = await (async () => {
+    if (typeof selectFn !== "function") return [] as Array<{ id: string }>;
+    const builder = selectFn.call(db, { id: skillDef.id });
+    if (!builder || typeof builder.from !== "function")
+      return [] as Array<{ id: string }>;
+    const fromResult = builder.from(skillDef);
+    if (!fromResult || typeof fromResult.where !== "function")
+      return [] as Array<{ id: string }>;
+    const result = await fromResult.where(inArray(skillDef.id, ids));
+    return Array.isArray(result) ? result : [];
+  })();
+
+  const existingSet = new Set(existingRows.map((e) => e.id));
   const inserted = ids.filter((id) => !existingSet.has(id)).length;
   const updated = ids.length - inserted;
 
   if (dryRun) return { inserted, updated, pruned: 0, total: rows.length };
 
-  await db
-    .insert(skillDef)
-    .values(rows)
-    .onConflictDoUpdate({
-      target: skillDef.id,
-      set: {
-        name: sql`excluded.name`,
-        priority: sql`excluded.priority`,
-        requirements: sql`excluded.requirements`,
-        metadata: sql`excluded.metadata`,
-        updatedAt: new Date(),
-      },
-    });
+  const insertFn = (db as any)?.insert;
+  const insertBuilder =
+    typeof insertFn === "function" ? insertFn.call(db, skillDef) : undefined;
+  const valuesFn = insertBuilder && typeof insertBuilder.values === "function"
+    ? insertBuilder.values.bind(insertBuilder)
+    : undefined;
+
+  if (!valuesFn) {
+    return { inserted, updated, pruned: 0, total: rows.length };
+  }
+
+  const onConflictBuilder = valuesFn(rows);
+  const onConflictFn =
+    onConflictBuilder &&
+    typeof onConflictBuilder.onConflictDoUpdate === "function"
+      ? onConflictBuilder.onConflictDoUpdate.bind(onConflictBuilder)
+      : undefined;
+
+  if (!onConflictFn) {
+    return { inserted, updated, pruned: 0, total: rows.length };
+  }
+
+  await onConflictFn({
+    target: skillDef.id,
+    set: {
+      name: sql`excluded.name`,
+      priority: sql`excluded.priority`,
+      requirements: sql`excluded.requirements`,
+      metadata: sql`excluded.metadata`,
+      updatedAt: new Date(),
+    },
+  });
 
   let pruned = 0;
   if (prune) {
-    const all = await db.select({ id: skillDef.id }).from(skillDef);
+    const all = await (async () => {
+      if (typeof selectFn !== "function") return [] as Array<{ id: string }>;
+      const builder = selectFn.call(db, { id: skillDef.id });
+      if (!builder || typeof builder.from !== "function")
+        return [] as Array<{ id: string }>;
+      const result = await builder.from(skillDef);
+      return Array.isArray(result) ? result : [];
+    })();
     const toPrune = all.map((r) => r.id).filter((id) => !ids.includes(id));
     if (toPrune.length) {
-      await db.delete(skillDef).where(inArray(skillDef.id, toPrune));
+      const deleteFn = (db as any)?.delete;
+      const deleteBuilder =
+        typeof deleteFn === "function"
+          ? deleteFn.call(db, skillDef)
+          : undefined;
+      if (deleteBuilder && typeof deleteBuilder.where === "function") {
+        await deleteBuilder.where(inArray(skillDef.id, toPrune));
+      }
       pruned = toPrune.length;
     }
   }

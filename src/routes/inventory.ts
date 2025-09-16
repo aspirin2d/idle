@@ -103,12 +103,22 @@ export function createInventoryRoutes(database: Database = db) {
     if (!duplicantId) {
       return c.json({ error: "Missing 'duplicant' query param" }, 400);
     }
-    const items = await database
+    const whereQuery = database
       .select()
       .from(inventory)
-      .where(eq(inventory.duplicantId, duplicantId))
-      .orderBy(inventory.slot);
-    return c.json(items);
+      .where(eq(inventory.duplicantId, duplicantId));
+
+    if (typeof (whereQuery as any)?.orderBy === "function") {
+      const ordered = await (whereQuery as any).orderBy(inventory.slot);
+      return c.json(ordered);
+    }
+
+    const rows = await whereQuery;
+    const sorted = Array.isArray(rows)
+      ? [...rows].sort((a, b) => (a?.slot ?? 0) - (b?.slot ?? 0))
+      : rows;
+
+    return c.json(sorted);
   });
 
   // Get a stack by id

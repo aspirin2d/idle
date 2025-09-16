@@ -9,20 +9,75 @@ import { parseRequestBody, removeUndefined } from "./utils.js";
 
 type Database = typeof db;
 
-const taskBaseSchema = z.object({
+const taskBaseShape = {
   description: z.string().min(1),
-  skillId: z.string().min(1),
+  skillId: z.string().min(1).optional(),
+  skill: z.string().min(1).optional(),
   targetId: z.string().min(1).nullable().optional(),
-});
+  target: z.string().min(1).nullable().optional(),
+} as const;
 
-const taskCreateSchema = taskBaseSchema.extend({
-  id: z.string().min(1).optional(),
-});
+const taskBaseObject = z.object(taskBaseShape);
 
-const taskUpdateSchema = taskBaseSchema
+type TaskAliasInput = Pick<
+  z.infer<typeof taskBaseObject>,
+  "skillId" | "skill" | "targetId" | "target"
+>;
+
+function validateTaskAliases(data: TaskAliasInput, ctx: z.RefinementCtx) {
+  if (
+    data.skillId !== undefined &&
+    data.skill !== undefined &&
+    data.skillId !== data.skill
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "skill and skillId must match when both provided",
+      path: ["skill"],
+    });
+  }
+
+  if (
+    data.targetId !== undefined &&
+    data.target !== undefined &&
+    data.targetId !== data.target
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "target and targetId must match when both provided",
+      path: ["target"],
+    });
+  }
+}
+
+const taskCreateSchema = taskBaseObject
+  .extend({
+    id: z.string().min(1).optional(),
+  })
+  .superRefine((data, ctx) => {
+    validateTaskAliases(data, ctx);
+
+    if (data.skillId == null && data.skill == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "skillId is required",
+        path: ["skillId"],
+      });
+    }
+  });
+
+const taskUpdateSchema = taskBaseObject
   .partial()
-  .refine((data) => Object.values(data).some((value) => value !== undefined), {
-    message: "At least one field must be provided",
+  .superRefine((data, ctx) => {
+    if (!Object.values(data).some((value) => value !== undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one field must be provided",
+        path: [],
+      });
+    }
+
+    validateTaskAliases(data, ctx);
   });
 
 export function createTaskRoutes(database: Database = db) {
@@ -61,11 +116,19 @@ export function createTaskRoutes(database: Database = db) {
       return parsed.response;
     }
 
-    const { id, ...rest } = parsed.data;
+    const { id, skillId, skill, targetId, target, ...rest } = parsed.data;
+    const resolvedSkillId = skillId ?? skill!;
+    const resolvedTargetId =
+      targetId !== undefined
+        ? targetId
+        : target !== undefined
+          ? target
+          : null;
+
     const values: NewTask = {
       description: rest.description,
-      skillId: rest.skillId,
-      targetId: rest.targetId ?? null,
+      skillId: resolvedSkillId,
+      targetId: resolvedTargetId ?? null,
     };
     if (id) {
       values.id = id;
@@ -86,7 +149,19 @@ export function createTaskRoutes(database: Database = db) {
       return parsed.response;
     }
 
-    const updateData: Partial<NewTask> = removeUndefined(parsed.data);
+    const { skillId, skill, targetId, target, ...rest } = parsed.data;
+    const updateData: Partial<NewTask> = removeUndefined(rest);
+
+    const resolvedSkill = skillId ?? skill;
+    if (resolvedSkill !== undefined) {
+      updateData.skillId = resolvedSkill;
+    }
+
+    const resolvedTarget =
+      targetId !== undefined ? targetId : target !== undefined ? target : undefined;
+    if (resolvedTarget !== undefined) {
+      updateData.targetId = resolvedTarget ?? null;
+    }
     const updated = await database
       .update(task)
       .set(updateData)

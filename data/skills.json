@@ -1,10 +1,11 @@
 {
-  "targets": [
+  "skills": [
     {
-      "id": "rock_small",
-      "name": "Small Rock",
-      "requirements": { "hardness": 1 },
-      "metadata": { "zone": "A1" }
+      "id": "digging",
+      "name": "Digging",
+      "priority": 0,
+      "requirements": { "tool": "shovel" },
+      "metadata": { "category": "mining" }
     }
   ]
 }
