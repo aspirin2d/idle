@@ -11,8 +11,8 @@ type Database = typeof db;
 
 const taskBaseSchema = z.object({
   description: z.string().min(1),
-  skill: z.string().min(1),
-  target: z.string().min(1).nullable().optional(),
+  skillId: z.string().min(1),
+  targetId: z.string().min(1).nullable().optional(),
 });
 
 const taskCreateSchema = taskBaseSchema.extend({
@@ -64,8 +64,8 @@ export function createTaskRoutes(database: Database = db) {
     const { id, ...rest } = parsed.data;
     const values: NewTask = {
       description: rest.description,
-      skillId: rest.skill,
-      targetId: rest.target ?? null,
+      skillId: rest.skillId,
+      targetId: rest.targetId ?? null,
     };
     if (id) {
       values.id = id;

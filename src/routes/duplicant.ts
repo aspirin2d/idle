@@ -11,8 +11,8 @@ type Database = typeof db;
 
 const duplicantBaseSchema = z.object({
   name: z.string().min(1),
-  task: z.string().min(1).nullable().optional(),
-  schedule: z.string().min(1).nullable().optional(),
+  taskId: z.string().min(1).nullable().optional(),
+  scheduleId: z.string().min(1).nullable().optional(),
 });
 
 const duplicantCreateSchema = duplicantBaseSchema.extend({
@@ -75,8 +75,8 @@ export function createDuplicantRoutes(database: Database = db) {
     // Default to the global "idle" task when not provided
     const dupValuesBase: Omit<NewDuplicant, "statsId"> = {
       name: rest.name,
-      taskId: rest.task ?? DEFAULT_IDLE_TASK_ID, // <— changed
-      scheduleId: rest.schedule ?? DEFAULT_SCHEDULE_ID,
+      taskId: rest.taskId ?? DEFAULT_IDLE_TASK_ID, // <— changed
+      scheduleId: rest.scheduleId ?? DEFAULT_SCHEDULE_ID,
     };
 
     const hasTx = typeof (database as any).transaction === "function";

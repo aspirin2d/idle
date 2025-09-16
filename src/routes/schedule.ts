@@ -3,23 +3,14 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import db from "../db/index.js";
-import {
-  schedule,
-  scheduleActivityEnum,
-} from "../db/schema.js";
-import type {
-  NewSchedule,
-  ScheduleActivity,
-} from "../db/schema.js";
+import { schedule, scheduleActivityEnum } from "../db/schema.js";
+import type { NewSchedule, ScheduleActivity } from "../db/schema.js";
 import { parseRequestBody } from "./utils.js";
 
 type Database = typeof db;
 
 const scheduleActivitySchema = z.enum(
-  scheduleActivityEnum.enumValues as [
-    ScheduleActivity,
-    ...ScheduleActivity[],
-  ],
+  scheduleActivityEnum.enumValues as [ScheduleActivity, ...ScheduleActivity[]],
 );
 
 const scheduleActivitiesSchema = z

@@ -130,7 +130,8 @@ export async function syncItemDefsFromFile(
   let pruned = 0;
   if (prune) {
     const dbAll = await db.select({ id: itemDef.id }).from(itemDef);
-    const toPrune = dbAll.map((r) => r.id).filter((id) => !existingSet.has(id));
+    const fileIdSet = new Set(ids);
+    const toPrune = dbAll.map((r) => r.id).filter((id) => !fileIdSet.has(id));
     if (toPrune.length) {
       await db.delete(itemDef).where(inArray(itemDef.id, toPrune));
       pruned = toPrune.length;

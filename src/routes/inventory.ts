@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import db from "../db/index.js";
 import {
-  duplicantInventory,
+  inventory,
   itemDef,
   duplicant as duplicantTable,
 } from "../db/schema.js";
@@ -77,12 +77,9 @@ async function getStackBySlot(
 ) {
   const rows = await database
     .select()
-    .from(duplicantInventory)
+    .from(inventory)
     .where(
-      and(
-        eq(duplicantInventory.duplicantId, duplicantId),
-        eq(duplicantInventory.slot, slot),
-      ),
+      and(eq(inventory.duplicantId, duplicantId), eq(inventory.slot, slot)),
     );
   return rows[0] ?? null;
 }
@@ -90,8 +87,8 @@ async function getStackBySlot(
 async function getStackById(database: Database, id: string) {
   const rows = await database
     .select()
-    .from(duplicantInventory)
-    .where(eq(duplicantInventory.id, id));
+    .from(inventory)
+    .where(eq(inventory.id, id));
   return rows[0] ?? null;
 }
 
@@ -108,8 +105,9 @@ export function createInventoryRoutes(database: Database = db) {
     }
     const items = await database
       .select()
-      .from(duplicantInventory)
-      .where(eq(duplicantInventory.duplicantId, duplicantId));
+      .from(inventory)
+      .where(eq(inventory.duplicantId, duplicantId))
+      .orderBy(inventory.slot);
     return c.json(items);
   });
 
@@ -153,7 +151,7 @@ export function createInventoryRoutes(database: Database = db) {
         // If slot empty → insert
         if (!existingAtSlot) {
           const [inserted] = await tx
-            .insert(duplicantInventory)
+            .insert(inventory)
             .values({
               duplicantId: duplicant,
               slot,
@@ -187,13 +185,13 @@ export function createInventoryRoutes(database: Database = db) {
         }
 
         const [updated] = await tx
-          .update(duplicantInventory)
+          .update(inventory)
           .set({
             qty: newQty,
             // keep durability as-is unless provided (optional simple rule)
             ...(durability != null ? { durability } : {}),
           })
-          .where(eq(duplicantInventory.id, existingAtSlot.id))
+          .where(eq(inventory.id, existingAtSlot.id))
           .returning();
         return updated;
       });
@@ -236,9 +234,9 @@ export function createInventoryRoutes(database: Database = db) {
         // Simple move if to is empty
         if (!to) {
           const [moved] = await tx
-            .update(duplicantInventory)
+            .update(inventory)
             .set({ slot: toSlot })
-            .where(eq(duplicantInventory.id, from.id))
+            .where(eq(inventory.id, from.id))
             .returning();
           return { action: "move", moved };
         }
@@ -250,29 +248,27 @@ export function createInventoryRoutes(database: Database = db) {
           if (total <= def.stackMax) {
             // All fits in 'to', delete 'from'
             const [updatedTo] = await tx
-              .update(duplicantInventory)
+              .update(inventory)
               .set({ qty: total })
-              .where(eq(duplicantInventory.id, to.id))
+              .where(eq(inventory.id, to.id))
               .returning();
 
-            await tx
-              .delete(duplicantInventory)
-              .where(eq(duplicantInventory.id, from.id));
+            await tx.delete(inventory).where(eq(inventory.id, from.id));
 
             return { action: "merge_all_into_to", updated: updatedTo };
           } else {
             // Partial merge up to stackMax, leave remainder in from
             const remainder = total - def.stackMax;
             const [updatedTo] = await tx
-              .update(duplicantInventory)
+              .update(inventory)
               .set({ qty: def.stackMax })
-              .where(eq(duplicantInventory.id, to.id))
+              .where(eq(inventory.id, to.id))
               .returning();
 
             const [updatedFrom] = await tx
-              .update(duplicantInventory)
+              .update(inventory)
               .set({ qty: remainder })
-              .where(eq(duplicantInventory.id, from.id))
+              .where(eq(inventory.id, from.id))
               .returning();
 
             return {
@@ -286,15 +282,15 @@ export function createInventoryRoutes(database: Database = db) {
         // Swap if allowed
         if (allowSwap) {
           const [movedFrom] = await tx
-            .update(duplicantInventory)
+            .update(inventory)
             .set({ slot: toSlot })
-            .where(eq(duplicantInventory.id, from.id))
+            .where(eq(inventory.id, from.id))
             .returning();
 
           const [movedTo] = await tx
-            .update(duplicantInventory)
+            .update(inventory)
             .set({ slot: fromSlot })
-            .where(eq(duplicantInventory.id, to.id))
+            .where(eq(inventory.id, to.id))
             .returning();
 
           return { action: "swap", a: movedFrom, b: movedTo };
@@ -344,8 +340,8 @@ export function createInventoryRoutes(database: Database = db) {
     // qty=0 → delete
     if (body.qty === 0) {
       const [deleted] = await database
-        .delete(duplicantInventory)
-        .where(eq(duplicantInventory.id, id))
+        .delete(inventory)
+        .where(eq(inventory.id, id))
         .returning();
       return c.json(deleted ?? { id, deleted: true });
     }
@@ -359,13 +355,13 @@ export function createInventoryRoutes(database: Database = db) {
     }
 
     const [updated] = await database
-      .update(duplicantInventory)
+      .update(inventory)
       .set({
         ...(body.qty != null ? { qty: body.qty } : {}),
         ...(body.durability != null ? { durability: body.durability } : {}),
         ...(body.slot != null ? { slot: body.slot } : {}),
       })
-      .where(eq(duplicantInventory.id, id))
+      .where(eq(inventory.id, id))
       .returning();
 
     return c.json(updated);
@@ -375,8 +371,8 @@ export function createInventoryRoutes(database: Database = db) {
   routes.delete("/:id", async (c) => {
     const { id } = c.req.param();
     const [deleted] = await database
-      .delete(duplicantInventory)
-      .where(eq(duplicantInventory.id, id))
+      .delete(inventory)
+      .where(eq(inventory.id, id))
       .returning();
     if (!deleted) return c.json({ error: "Inventory stack not found" }, 404);
     return c.json(deleted);

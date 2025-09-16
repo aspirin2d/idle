@@ -100,7 +100,7 @@ export const skillTargetDef = pgTable("skill_target_def", {
     .defaultNow(),
 });
 
-export const duplicantInventory = pgTable(
+export const inventory = pgTable(
   "inventory",
   {
     id: text("id")
@@ -175,22 +175,19 @@ export const duplicant = pgTable("duplicant", {
 });
 
 export const itemDefRelations = relations(itemDef, ({ many }) => ({
-  stacks: many(duplicantInventory),
+  stacks: many(inventory),
 }));
 
-export const duplicantInventoryRelations = relations(
-  duplicantInventory,
-  ({ one }) => ({
-    duplicant: one(duplicant, {
-      fields: [duplicantInventory.duplicantId],
-      references: [duplicant.id],
-    }),
-    item: one(itemDef, {
-      fields: [duplicantInventory.itemId],
-      references: [itemDef.id],
-    }),
+export const duplicantInventoryRelations = relations(inventory, ({ one }) => ({
+  duplicant: one(duplicant, {
+    fields: [inventory.duplicantId],
+    references: [duplicant.id],
   }),
-);
+  item: one(itemDef, {
+    fields: [inventory.itemId],
+    references: [itemDef.id],
+  }),
+}));
 
 export const scheduleRelations = relations(schedule, ({ many }) => ({
   duplicants: many(duplicant),
@@ -231,8 +228,8 @@ export type ItemCategory = (typeof itemCategoryEnum.enumValues)[number];
 export type ItemDef = typeof itemDef.$inferSelect;
 export type NewItemDef = typeof itemDef.$inferInsert;
 
-export type DuplicantInventory = typeof duplicantInventory.$inferSelect;
-export type NewDuplicantInventory = typeof duplicantInventory.$inferInsert;
+export type DuplicantInventory = typeof inventory.$inferSelect;
+export type NewDuplicantInventory = typeof inventory.$inferInsert;
 
 export type SkillDef = typeof skillDef.$inferSelect;
 export type NewSkillDef = typeof skillDef.$inferInsert;

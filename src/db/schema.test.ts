@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   TASK_STATUS,
   duplicant,
-  duplicantInventory,
+  inventory,
   duplicantInventoryRelations,
   duplicantRelations,
   itemCategoryEnum,
@@ -56,7 +56,7 @@ describe("database schema", () => {
     expect(task).toHaveProperty("description");
     expect(stats).toHaveProperty("stamina");
     expect(duplicant).toHaveProperty("name");
-    expect(duplicantInventory).toHaveProperty("slot");
+    expect(inventory).toHaveProperty("slot");
   });
 
   it("creates relation descriptors for joined entities", () => {

@@ -7,6 +7,7 @@ import { ensureDefaultSchedule, ensureDefaultIdleTask } from "./db/index.js"; //
 import { api } from "./routes/api.js";
 import { ensureItemDefsSyncedOnStart } from "./lib/items.js";
 import { ensureSkillTargetDefsSyncedOnStart } from "./lib/skill-targets.js";
+import { ensureSkillDefsSyncedOnStart } from "./lib/skills.js";
 
 const app = new Hono();
 
@@ -21,6 +22,7 @@ const defaultPort = parseInt(process.env.PORT ?? "3000");
 await ensureDefaultSchedule();
 await ensureDefaultIdleTask();
 await ensureItemDefsSyncedOnStart();
+await ensureSkillDefsSyncedOnStart();
 await ensureSkillTargetDefsSyncedOnStart();
 
 serve({ fetch: app.fetch, port: defaultPort }, (info) =>
