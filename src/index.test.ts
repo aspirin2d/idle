@@ -20,6 +20,13 @@ vi.mock("./db/index.js", () => ({
   default: dbMock,
 }));
 
+const ensureItemDefsSyncedOnStartMock = vi.fn();
+
+vi.mock("./lib/items.js", () => ({
+  __esModule: true,
+  ensureItemDefsSyncedOnStart: ensureItemDefsSyncedOnStartMock,
+}));
+
 describe("index", () => {
   beforeEach(() => {
     vi.restoreAllMocks();

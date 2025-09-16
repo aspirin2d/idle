@@ -1,0 +1,15 @@
+[
+  {
+    "id": "wood",
+    "name": "Wood",
+    "category": "material",
+    "stack": { "max": 100 },
+    "weight": 1
+  },
+  {
+    "id": "iron_ore",
+    "name": "Iron Ore",
+    "category": "material",
+    "stack": { "max": 50 }
+  }
+]
