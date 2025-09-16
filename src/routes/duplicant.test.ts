@@ -266,7 +266,10 @@ describe("duplicant routes", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(updated);
-    expect(set).toHaveBeenCalledWith({ name: "Ada Updated", task: "task-99" });
+    expect(set).toHaveBeenCalledWith({
+      name: "Ada Updated",
+      taskId: "task-99",
+    });
   });
 
   it("returns 404 when updating a missing duplicant", async () => {
