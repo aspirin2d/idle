@@ -207,68 +207,6 @@ export function createInventoryRoutes(database: Database = db) {
     }
   });
 
-  // Update a stack by id (qty/durability/slot). qty=0 deletes.
-  routes.post("/:id", async (c) => {
-    const { id } = c.req.param();
-    const parsed = await parseRequestBody(
-      c,
-      updateSchema,
-      "Invalid inventory payload",
-    );
-    if (!parsed.success) return parsed.response;
-
-    const body = parsed.data;
-
-    const current = await getStackById(database, id);
-    if (!current) return c.json({ error: "Inventory stack not found" }, 404);
-
-    // If moving to another slot, ensure uniqueness
-    if (body.slot != null) {
-      const atTarget = await getStackBySlot(
-        database,
-        current.duplicantId,
-        body.slot,
-      );
-      if (atTarget) {
-        return c.json(
-          {
-            error: "Target slot occupied. Use /inventory/move for swap/merge.",
-          },
-          400,
-        );
-      }
-    }
-
-    // qty=0 → delete
-    if (body.qty === 0) {
-      const [deleted] = await database
-        .delete(duplicantInventory)
-        .where(eq(duplicantInventory.id, id))
-        .returning();
-      return c.json(deleted ?? { id, deleted: true });
-    }
-
-    // Validate stackMax when qty provided
-    if (body.qty != null) {
-      const def = await getItemDef(database, current.itemId);
-      if (body.qty > def.stackMax) {
-        return c.json({ error: `qty exceeds stackMax (${def.stackMax})` }, 400);
-      }
-    }
-
-    const [updated] = await database
-      .update(duplicantInventory)
-      .set({
-        ...(body.qty != null ? { qty: body.qty } : {}),
-        ...(body.durability != null ? { durability: body.durability } : {}),
-        ...(body.slot != null ? { slot: body.slot } : {}),
-      })
-      .where(eq(duplicantInventory.id, id))
-      .returning();
-
-    return c.json(updated);
-  });
-
   // Move/swap/merge between slots
   routes.post("/move", async (c) => {
     const parsed = await parseRequestBody(
@@ -369,6 +307,68 @@ export function createInventoryRoutes(database: Database = db) {
     } catch (err: any) {
       return c.json({ error: err.message ?? "Move failed" }, 400);
     }
+  });
+
+  // Update a stack by id (qty/durability/slot). qty=0 deletes.
+  routes.post("/:id", async (c) => {
+    const { id } = c.req.param();
+    const parsed = await parseRequestBody(
+      c,
+      updateSchema,
+      "Invalid inventory payload",
+    );
+    if (!parsed.success) return parsed.response;
+
+    const body = parsed.data;
+
+    const current = await getStackById(database, id);
+    if (!current) return c.json({ error: "Inventory stack not found" }, 404);
+
+    // If moving to another slot, ensure uniqueness
+    if (body.slot != null) {
+      const atTarget = await getStackBySlot(
+        database,
+        current.duplicantId,
+        body.slot,
+      );
+      if (atTarget) {
+        return c.json(
+          {
+            error: "Target slot occupied. Use /inventory/move for swap/merge.",
+          },
+          400,
+        );
+      }
+    }
+
+    // qty=0 → delete
+    if (body.qty === 0) {
+      const [deleted] = await database
+        .delete(duplicantInventory)
+        .where(eq(duplicantInventory.id, id))
+        .returning();
+      return c.json(deleted ?? { id, deleted: true });
+    }
+
+    // Validate stackMax when qty provided
+    if (body.qty != null) {
+      const def = await getItemDef(database, current.itemId);
+      if (body.qty > def.stackMax) {
+        return c.json({ error: `qty exceeds stackMax (${def.stackMax})` }, 400);
+      }
+    }
+
+    const [updated] = await database
+      .update(duplicantInventory)
+      .set({
+        ...(body.qty != null ? { qty: body.qty } : {}),
+        ...(body.durability != null ? { durability: body.durability } : {}),
+        ...(body.slot != null ? { slot: body.slot } : {}),
+      })
+      .where(eq(duplicantInventory.id, id))
+      .returning();
+
+    return c.json(updated);
   });
 
   // Delete a stack
