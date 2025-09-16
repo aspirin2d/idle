@@ -1,5 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import * as schema from "./schema.js";
 import { eq } from "drizzle-orm";
 import { schedule, task } from "./schema.js"; // <— add task
 import type { ScheduleActivity } from "./schema.js";
@@ -16,7 +17,7 @@ export const DEFAULT_SCHEDULE_ACTIVITIES: ScheduleActivity[] = [
 export const DEFAULT_IDLE_TASK_ID = "idle";
 
 const client = new PGlite(process.env.PG_DATA ?? "./pg_data");
-const db = drizzle({ client });
+const db = drizzle({ client, schema });
 
 type Database = typeof db;
 
