@@ -39,20 +39,26 @@ export function createScheduleRoutes(database: Database = db) {
   const routes = new Hono();
 
   routes.get("/", async (c) => {
-    const items = await database.select().from(schedule);
+    const items = await database.query.schedule.findMany({
+      with: {
+        duplicants: true,
+      },
+    });
     return c.json(items);
   });
 
   routes.get("/:id", async (c) => {
     const { id } = c.req.param();
-    const result = await database
-      .select()
-      .from(schedule)
-      .where(eq(schedule.id, id));
-    if (result.length === 0) {
+    const result = await database.query.schedule.findFirst({
+      where: (schedules, { eq }) => eq(schedules.id, id),
+      with: {
+        duplicants: true,
+      },
+    });
+    if (!result) {
       return c.json({ error: "Schedule not found" }, 404);
     }
-    return c.json(result[0]);
+    return c.json(result);
   });
 
   routes.post("/", async (c) => {

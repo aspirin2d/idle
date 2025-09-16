@@ -3,6 +3,12 @@ import { describe, it, expect, vi } from "vitest";
 import { createTaskRoutes } from "./task.js";
 
 type MockDb = {
+  query: {
+    task: {
+      findMany: ReturnType<typeof vi.fn>;
+      findFirst: ReturnType<typeof vi.fn>;
+    };
+  };
   select: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
@@ -11,6 +17,12 @@ type MockDb = {
 
 function createMockDb(): MockDb {
   return {
+    query: {
+      task: {
+        findMany: vi.fn(),
+        findFirst: vi.fn(),
+      },
+    },
     select: vi.fn(),
     insert: vi.fn(),
     update: vi.fn(),
@@ -22,17 +34,24 @@ describe("task routes", () => {
   it("lists all tasks", async () => {
     const database = createMockDb();
     const tasks = [
-      { id: "task-1", description: "Mine", skillId: "dig", targetId: null },
+      {
+        id: "task-1",
+        description: "Mine",
+        skillId: "dig",
+        targetId: null,
+        duplicants: [],
+      },
     ];
-    const from = vi.fn().mockResolvedValue(tasks);
-    database.select.mockReturnValueOnce({ from });
+    database.query.task.findMany.mockResolvedValueOnce(tasks);
 
     const routes = createTaskRoutes(database as never);
     const res = await routes.request("/");
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(tasks);
-    expect(database.select).toHaveBeenCalledTimes(1);
+    expect(database.query.task.findMany).toHaveBeenCalledWith({
+      with: { duplicants: true },
+    });
   });
 
   it("fetches a task by id", async () => {
@@ -42,24 +61,23 @@ describe("task routes", () => {
       description: "Cook",
       skillId: "cook",
       targetId: "kitchen",
+      duplicants: [],
     };
-    const where = vi.fn().mockResolvedValue([task]);
-    const from = vi.fn().mockReturnValue({ where });
-    database.select.mockReturnValueOnce({ from });
+    database.query.task.findFirst.mockResolvedValueOnce(task);
 
     const routes = createTaskRoutes(database as never);
     const res = await routes.request(`/${task.id}`);
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(task);
-    expect(where).toHaveBeenCalledTimes(1);
+    expect(database.query.task.findFirst).toHaveBeenCalledTimes(1);
+    const call = database.query.task.findFirst.mock.calls[0]?.[0];
+    expect(call?.with).toEqual({ duplicants: true });
   });
 
   it("returns 404 for a missing task", async () => {
     const database = createMockDb();
-    const where = vi.fn().mockResolvedValue([]);
-    const from = vi.fn().mockReturnValue({ where });
-    database.select.mockReturnValueOnce({ from });
+    database.query.task.findFirst.mockResolvedValueOnce(undefined);
 
     const routes = createTaskRoutes(database as never);
     const res = await routes.request("/missing");
