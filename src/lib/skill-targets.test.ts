@@ -139,6 +139,23 @@ describe("skill target library", () => {
     expect(readFileMock).toHaveBeenCalledWith("/tmp/skill-targets.json", "utf8");
   });
 
+  it("falls back to the default path when syncing skill targets", async () => {
+    const { syncSkillTargetDefsFromFile } = skillTargets;
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify([{ id: "target-4", name: "Target Four" }]),
+    );
+    selectMock.mockReturnValue({
+      from: () => ({ where: () => Promise.resolve([]) }),
+    });
+
+    const result = await syncSkillTargetDefsFromFile(undefined as never, {
+      dryRun: true,
+    });
+
+    expect(result).toEqual({ inserted: 1, updated: 0, pruned: 0, total: 1 });
+    expect(readFileMock).toHaveBeenCalledWith("./data/skill-targets.json", "utf8");
+  });
+
   it("short-circuits syncing when there are no skill targets", async () => {
     const { syncSkillTargetDefsFromFile } = skillTargets;
     readFileMock.mockResolvedValueOnce(JSON.stringify([]));
@@ -232,6 +249,30 @@ describe("skill target library", () => {
     );
   });
 
+  it("includes pruned counts when logging startup syncs", async () => {
+    const { ensureSkillTargetDefsSyncedOnStart } = skillTargets;
+    process.env.SKILL_TARGET_DEFS_PRUNE = "true";
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify([
+        { id: "existing", name: "Existing" },
+        { id: "new", name: "New" },
+      ]),
+    );
+    mockSelect([{ id: "existing" }]);
+    mockSelect([{ id: "existing" }, { id: "legacy" }], { raw: true });
+    const { values } = mockInsert();
+    const { where: deleteWhere } = mockDelete();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await ensureSkillTargetDefsSyncedOnStart();
+
+    expect(values).toHaveBeenCalled();
+    expect(deleteWhere).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      "[skill-targets] synced 2 defs (inserted: 1, updated: 1, pruned: 1) from ./data/skill-targets.json",
+    );
+  });
+
   it("optionally suppresses missing definition files", async () => {
     const { ensureSkillTargetDefsSyncedOnStart } = skillTargets;
     process.env.SKILL_TARGET_DEFS_PATH = "./missing.json";
@@ -257,6 +298,17 @@ describe("skill target library", () => {
     await expect(ensureSkillTargetDefsSyncedOnStart()).rejects.toThrow("missing");
     expect(warnSpy).toHaveBeenCalledWith(
       "[skill-targets] defs file not found at ./missing.json. Set SKILL_TARGET_DEFS_OPTIONAL=true to skip.",
+    );
+  });
+
+  it("matches textual missing file errors for skill targets", async () => {
+    const { ensureSkillTargetDefsSyncedOnStart } = skillTargets;
+    readFileMock.mockRejectedValueOnce(new Error("No such file"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(ensureSkillTargetDefsSyncedOnStart()).rejects.toThrow(/no such file/i);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[skill-targets] defs file not found at ./data/skill-targets.json. Set SKILL_TARGET_DEFS_OPTIONAL=true to skip.",
     );
   });
 });

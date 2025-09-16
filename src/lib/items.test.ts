@@ -151,6 +151,20 @@ describe("items library", () => {
     expect(readFileMock).toHaveBeenCalledWith("/tmp/items.json", "utf8");
   });
 
+  it("falls back to the default items path when none is provided", async () => {
+    const { syncItemDefsFromFile } = items;
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify([{ id: "wood", name: "Wood", category: "material" }]),
+    );
+    selectMock.mockReturnValue({
+      from: () => ({ where: () => Promise.resolve([]) }),
+    });
+
+    const result = await syncItemDefsFromFile(undefined as never, { dryRun: true });
+    expect(result).toEqual({ inserted: 1, updated: 0, pruned: 0, total: 1 });
+    expect(readFileMock).toHaveBeenCalledWith("./data/items.json", "utf8");
+  });
+
   it("short-circuits syncing when there are no item definitions", async () => {
     const { syncItemDefsFromFile } = items;
     readFileMock.mockResolvedValueOnce(JSON.stringify([]));
@@ -246,6 +260,30 @@ describe("items library", () => {
     );
   });
 
+  it("includes pruned counts in startup logs when present", async () => {
+    const { ensureItemDefsSyncedOnStart } = items;
+    process.env.ITEM_DEFS_PRUNE = "true";
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify([
+        { id: "existing", name: "Existing", category: "material" },
+        { id: "new", name: "New", category: "material" },
+      ]),
+    );
+    mockSelect([{ id: "existing" }]);
+    mockSelect([{ id: "existing" }, { id: "legacy" }], { raw: true });
+    const { values } = mockInsert();
+    const { where: deleteWhere } = mockDelete();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await ensureItemDefsSyncedOnStart();
+
+    expect(values).toHaveBeenCalled();
+    expect(deleteWhere).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      "[items] synced 2 defs (inserted: 1, updated: 1, pruned: 1) from ./data/items.json",
+    );
+  });
+
   it("optionally suppresses missing definition files", async () => {
     const { ensureItemDefsSyncedOnStart } = items;
     process.env.ITEM_DEFS_PATH = "./missing.json";
@@ -271,6 +309,17 @@ describe("items library", () => {
     await expect(ensureItemDefsSyncedOnStart()).rejects.toThrow("missing");
     expect(warnSpy).toHaveBeenCalledWith(
       "[items] item defs file not found at ./missing.json. Set ITEM_DEFS_OPTIONAL=true to skip.",
+    );
+  });
+
+  it("treats textual missing file errors as ENOENT", async () => {
+    const { ensureItemDefsSyncedOnStart } = items;
+    readFileMock.mockRejectedValueOnce(new Error("no such file or directory"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(ensureItemDefsSyncedOnStart()).rejects.toThrow(/no such file/i);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[items] item defs file not found at ./data/items.json. Set ITEM_DEFS_OPTIONAL=true to skip.",
     );
   });
 });

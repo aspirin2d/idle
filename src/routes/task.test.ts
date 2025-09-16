@@ -96,6 +96,40 @@ describe("task routes", () => {
     });
   });
 
+  it("allows explicitly setting a task id when creating", async () => {
+    const database = createMockDb();
+    const created = {
+      id: "custom-id",
+      description: "Inspect",
+      skillId: "analysis",
+      targetId: "lab",
+    };
+    const returning = vi.fn().mockResolvedValue([created]);
+    const values = vi.fn().mockReturnValue({ returning });
+    database.insert.mockReturnValueOnce({ values });
+
+    const routes = createTaskRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "custom-id",
+        description: "Inspect",
+        skill: "analysis",
+        target: "lab",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual(created);
+    expect(values).toHaveBeenCalledWith({
+      id: "custom-id",
+      description: "Inspect",
+      skillId: "analysis",
+      targetId: "lab",
+    });
+  });
+
   it("rejects invalid task payloads", async () => {
     const database = createMockDb();
     const routes = createTaskRoutes(database as never);
@@ -154,6 +188,23 @@ describe("task routes", () => {
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Task not found" });
+  });
+
+  it("rejects invalid task updates", async () => {
+    const database = createMockDb();
+    const routes = createTaskRoutes(database as never);
+
+    const res = await routes.request(`/task-1`, {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "Invalid task payload",
+    });
+    expect(database.update).not.toHaveBeenCalled();
   });
 
   it("deletes a task", async () => {

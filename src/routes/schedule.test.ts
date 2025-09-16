@@ -83,6 +83,25 @@ describe("schedule routes", () => {
     expect(values).toHaveBeenCalledWith({ activities });
   });
 
+  it("allows explicitly setting an id when creating a schedule", async () => {
+    const database = createMockDb();
+    const created = { id: "custom-id", activities };
+    const returning = vi.fn().mockResolvedValue([created]);
+    const values = vi.fn().mockReturnValue({ returning });
+    database.insert.mockReturnValueOnce({ values });
+
+    const routes = createScheduleRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({ id: "custom-id", activities }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual(created);
+    expect(values).toHaveBeenCalledWith({ id: "custom-id", activities });
+  });
+
   it("rejects invalid schedule payloads", async () => {
     const database = createMockDb();
     const routes = createScheduleRoutes(database as never);
@@ -136,6 +155,23 @@ describe("schedule routes", () => {
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Schedule not found" });
+  });
+
+  it("rejects invalid schedule updates", async () => {
+    const database = createMockDb();
+    const routes = createScheduleRoutes(database as never);
+
+    const res = await routes.request(`/sched-1`, {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "Invalid schedule payload",
+    });
+    expect(database.update).not.toHaveBeenCalled();
   });
 
   it("deletes a schedule", async () => {

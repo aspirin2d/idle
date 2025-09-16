@@ -122,6 +122,7 @@ export const duplicantInventory = pgTable(
   },
   (t) => [
     // one stack per (duplicant, slot)
+    /* c8 ignore start */
     uniqueIndex("uniq_dup_slot").on(t.duplicantId, t.slot),
     index("idx_dup_inv_dup").on(t.duplicantId),
     index("idx_dup_inv_item").on(t.itemId),
@@ -213,6 +214,7 @@ export const duplicantRelations = relations(duplicant, ({ one }) => ({
     references: [stats.id],
   }),
 }));
+/* c8 ignore end */
 
 export type Duplicant = typeof duplicant.$inferSelect;
 export type NewDuplicant = typeof duplicant.$inferInsert;

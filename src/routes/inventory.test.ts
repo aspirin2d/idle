@@ -141,6 +141,91 @@ describe("inventory routes", () => {
     });
   });
 
+  it("rejects creating a stack when qty exceeds stackMax", async () => {
+    const database = createMockDb();
+
+    mockSelectWhere(database, [{ id: "dup-1" }]);
+    mockSelectWhere(database, [
+      { id: "item-1", name: "Copper", stackMax: 2 },
+    ]);
+    mockSelectWhere(database, []);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        slot: 0,
+        item: "item-1",
+        qty: 3,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "qty exceeds stackMax (2)",
+    });
+    expect(database.insert).not.toHaveBeenCalled();
+  });
+
+  it("creates a stack inside a transaction when supported", async () => {
+    const inserted = {
+      id: "stack-tx",
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 1,
+      durability: 70,
+    };
+
+    const txSelectWhere = vi.fn().mockResolvedValue([]);
+    const txSelectFrom = vi.fn().mockReturnValue({ where: txSelectWhere });
+    const txSelect = vi.fn().mockReturnValue({ from: txSelectFrom });
+
+    const txInsertReturning = vi.fn().mockResolvedValue([inserted]);
+    const txInsertValues = vi.fn().mockReturnValue({ returning: txInsertReturning });
+    const txInsert = vi.fn().mockReturnValue({ values: txInsertValues });
+
+    const txUpdateWhere = vi.fn().mockResolvedValue(undefined);
+    const txUpdateSet = vi.fn().mockReturnValue({ where: txUpdateWhere });
+    const txUpdate = vi.fn().mockReturnValue({ set: txUpdateSet });
+
+    const transaction = vi.fn(async (callback: (tx: any) => Promise<unknown>) =>
+      callback({ select: txSelect, insert: txInsert, update: txUpdate, delete: vi.fn() }),
+    );
+
+    const database = createMockDb({ transaction });
+
+    mockSelectWhere(database, [{ id: "dup-1" }]);
+    mockSelectWhere(database, [
+      { id: "item-1", name: "Copper", stackMax: 5 },
+    ]);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        slot: 0,
+        item: "item-1",
+        durability: 70,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual(inserted);
+    expect(transaction).toHaveBeenCalled();
+    expect(txInsertValues).toHaveBeenCalledWith({
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 1,
+      durability: 70,
+    });
+  });
+
   it("rejects creating a stack in an occupied slot when merge is disabled", async () => {
     const database = createMockDb();
 
@@ -174,6 +259,80 @@ describe("inventory routes", () => {
     expect(database.insert).not.toHaveBeenCalled();
   });
 
+  it("rejects merging different items in the same slot", async () => {
+    const database = createMockDb();
+
+    mockSelectWhere(database, [{ id: "dup-1" }]);
+    mockSelectWhere(database, [
+      { id: "item-1", name: "Copper", stackMax: 5 },
+    ]);
+    mockSelectWhere(database, [
+      {
+        id: "stack-existing",
+        duplicantId: "dup-1",
+        slot: 0,
+        itemId: "item-2",
+        qty: 3,
+      },
+    ]);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        slot: 0,
+        item: "item-1",
+        qty: 1,
+        merge: true,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Cannot merge different items in the same slot",
+    });
+    expect(database.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects merges that would exceed the stack limit", async () => {
+    const database = createMockDb();
+
+    mockSelectWhere(database, [{ id: "dup-1" }]);
+    mockSelectWhere(database, [
+      { id: "item-1", name: "Copper", stackMax: 5 },
+    ]);
+    const existing = {
+      id: "stack-existing",
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 4,
+      durability: 60,
+    };
+    mockSelectWhere(database, [existing]);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        slot: 0,
+        item: "item-1",
+        qty: 3,
+        merge: true,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Merge would exceed stackMax (5)",
+    });
+    expect(database.update).not.toHaveBeenCalled();
+  });
+
   it("merges into an existing stack when merge is enabled", async () => {
     const database = createMockDb();
 
@@ -191,7 +350,7 @@ describe("inventory routes", () => {
     };
     mockSelectWhere(database, [existing]);
 
-    const updated = { ...existing, qty: 4 };
+    const updated = { ...existing, qty: 4, durability: 90 };
     const returning = vi.fn().mockResolvedValue([updated]);
     const set = vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({ returning }),
@@ -207,6 +366,7 @@ describe("inventory routes", () => {
         item: "item-1",
         qty: 2,
         merge: true,
+        durability: 90,
       }),
       headers: { "Content-Type": "application/json" },
     });
@@ -215,6 +375,7 @@ describe("inventory routes", () => {
     expect(await res.json()).toEqual(updated);
     expect(set).toHaveBeenCalledWith({
       qty: 4,
+      durability: 90,
     });
   });
 
@@ -253,6 +414,23 @@ describe("inventory routes", () => {
     expect(set).toHaveBeenCalledWith({ qty: 3, durability: 80, slot: 2 });
   });
 
+  it("rejects invalid inventory updates", async () => {
+    const database = createMockDb();
+    const routes = createInventoryRoutes(database as never);
+
+    const res = await routes.request(`/stack-1`, {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "Invalid inventory payload",
+    });
+    expect(database.update).not.toHaveBeenCalled();
+  });
+
   it("rejects updating into an occupied slot", async () => {
     const database = createMockDb();
 
@@ -279,6 +457,35 @@ describe("inventory routes", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
       error: "Target slot occupied. Use /inventory/move for swap/merge.",
+    });
+    expect(database.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects inventory updates that exceed stack limits", async () => {
+    const database = createMockDb();
+
+    const current = {
+      id: "stack-1",
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 2,
+    };
+    mockSelectWhere(database, [current]);
+    mockSelectWhere(database, [
+      { id: "item-1", name: "Copper", stackMax: 5 },
+    ]);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request(`/${current.id}`, {
+      method: "POST",
+      body: JSON.stringify({ qty: 10 }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "qty exceeds stackMax (5)",
     });
     expect(database.update).not.toHaveBeenCalled();
   });
@@ -359,6 +566,48 @@ describe("inventory routes", () => {
     expect(set).toHaveBeenCalledWith({ slot: 3 });
   });
 
+  it("performs moves inside a transaction when available", async () => {
+    const fromStack = {
+      id: "stack-from",
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 2,
+    };
+    const moved = { ...fromStack, slot: 3 };
+
+    const txSelectWhere = vi
+      .fn()
+      .mockResolvedValueOnce([fromStack])
+      .mockResolvedValueOnce([]);
+    const txSelectFrom = vi.fn().mockReturnValue({ where: txSelectWhere });
+    const txSelect = vi.fn().mockReturnValue({ from: txSelectFrom });
+
+    const txUpdateReturning = vi.fn().mockResolvedValue([moved]);
+    const txUpdateWhere = vi.fn().mockReturnValue({ returning: txUpdateReturning });
+    const txUpdateSet = vi.fn().mockReturnValue({ where: txUpdateWhere });
+    const txUpdate = vi.fn().mockReturnValue({ set: txUpdateSet });
+
+    const transaction = vi.fn(async (callback: (tx: any) => Promise<unknown>) =>
+      callback({ select: txSelect, update: txUpdate, insert: vi.fn(), delete: vi.fn() }),
+    );
+
+    const database = createMockDb({ transaction });
+    mockSelectWhere(database, [{ id: "dup-1" }]);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/move", {
+      method: "POST",
+      body: JSON.stringify({ duplicant: "dup-1", fromSlot: 0, toSlot: 3 }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ action: "move", moved });
+    expect(transaction).toHaveBeenCalled();
+    expect(txUpdateSet).toHaveBeenCalledWith({ slot: 3 });
+  });
+
   it("merges stacks during a move when possible", async () => {
     const database = createMockDb();
 
@@ -413,6 +662,66 @@ describe("inventory routes", () => {
     expect(database.delete).toHaveBeenCalledTimes(1);
   });
 
+  it("splits stacks across slots when only a partial merge fits", async () => {
+    const database = createMockDb();
+
+    mockSelectWhere(database, [{ id: "dup-1" }]);
+    const fromStack = {
+      id: "stack-from",
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 5,
+    };
+    const toStack = {
+      id: "stack-to",
+      duplicantId: "dup-1",
+      slot: 2,
+      itemId: "item-1",
+      qty: 4,
+    };
+    mockSelectWhere(database, [fromStack]);
+    mockSelectWhere(database, [toStack]);
+    mockSelectWhere(database, [
+      { id: "item-1", name: "Copper", stackMax: 6 },
+    ]);
+
+    const updatedTo = { ...toStack, qty: 6 };
+    const updateToReturning = vi.fn().mockResolvedValue([updatedTo]);
+    const updateToWhere = vi.fn().mockReturnValue({ returning: updateToReturning });
+    const updateToSet = vi.fn().mockReturnValue({ where: updateToWhere });
+
+    const updatedFrom = { ...fromStack, qty: 3 };
+    const updateFromReturning = vi.fn().mockResolvedValue([updatedFrom]);
+    const updateFromWhere = vi.fn().mockReturnValue({ returning: updateFromReturning });
+    const updateFromSet = vi.fn().mockReturnValue({ where: updateFromWhere });
+
+    database.update
+      .mockReturnValueOnce({ set: updateToSet })
+      .mockReturnValueOnce({ set: updateFromSet });
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/move", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        fromSlot: 0,
+        toSlot: 2,
+        merge: true,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      action: "merge_partial",
+      to: updatedTo,
+      from: updatedFrom,
+    });
+    expect(database.update).toHaveBeenCalledTimes(2);
+    expect(database.delete).not.toHaveBeenCalled();
+  });
+
   it("swaps stacks when merge is not possible but swapping is allowed", async () => {
     const database = createMockDb();
 
@@ -465,6 +774,47 @@ describe("inventory routes", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ action: "swap", a: movedFrom, b: movedTo });
     expect(database.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("errors when merge and swap are both disallowed", async () => {
+    const database = createMockDb();
+
+    mockSelectWhere(database, [{ id: "dup-1" }]);
+    const fromStack = {
+      id: "stack-from",
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 1,
+    };
+    const toStack = {
+      id: "stack-to",
+      duplicantId: "dup-1",
+      slot: 2,
+      itemId: "item-2",
+      qty: 2,
+    };
+    mockSelectWhere(database, [fromStack]);
+    mockSelectWhere(database, [toStack]);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/move", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        fromSlot: 0,
+        toSlot: 2,
+        merge: false,
+        allowSwap: false,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Target slot occupied and merge/swap not permitted",
+    });
+    expect(database.update).not.toHaveBeenCalled();
   });
 
   it("returns an error when moving from an empty slot", async () => {

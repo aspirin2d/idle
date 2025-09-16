@@ -18,13 +18,15 @@ export const DEFAULT_IDLE_TASK_ID = "idle";
 const client = new PGlite(process.env.PG_DATA ?? "./pg_data");
 const db = drizzle({ client });
 
-export async function ensureDefaultSchedule() {
-  const existing = await db
+type Database = typeof db;
+
+export async function ensureDefaultSchedule(database: Database = db) {
+  const existing = await database
     .select({ id: schedule.id })
     .from(schedule)
     .where(eq(schedule.id, DEFAULT_SCHEDULE_ID));
   if (existing.length === 0) {
-    await db.insert(schedule).values({
+    await database.insert(schedule).values({
       id: DEFAULT_SCHEDULE_ID,
       activities: DEFAULT_SCHEDULE_ACTIVITIES,
     });
@@ -32,14 +34,14 @@ export async function ensureDefaultSchedule() {
 }
 
 // NEW: ensure a global "idle" task exists
-export async function ensureDefaultIdleTask() {
-  const existing = await db
+export async function ensureDefaultIdleTask(database: Database = db) {
+  const existing = await database
     .select({ id: task.id })
     .from(task)
     .where(eq(task.id, DEFAULT_IDLE_TASK_ID));
 
   if (existing.length === 0) {
-    await db.insert(task).values({
+    await database.insert(task).values({
       id: DEFAULT_IDLE_TASK_ID,
       description: "Idle",
       skillId: "idle",

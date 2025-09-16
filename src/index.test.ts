@@ -106,4 +106,12 @@ describe("index", () => {
     expect(ensureItemDefsSyncedOnStartMock).toHaveBeenCalled();
     expect(ensureSkillTargetDefsSyncedOnStartMock).toHaveBeenCalled();
   });
+
+  it("falls back to the default port when PORT is unset", async () => {
+    await import("./index.js");
+    const [opts] = serveMock.mock.calls[0];
+    expect(opts.port).toBe(3000);
+    expect(ensureDefaultScheduleMock).toHaveBeenCalled();
+    expect(ensureDefaultIdleTaskMock).toHaveBeenCalled();
+  });
 });
