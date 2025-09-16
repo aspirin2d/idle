@@ -26,7 +26,7 @@ export async function parseRequestBody<T>(
       response: c.json(
         {
           error: errorMessage,
-          details: result.error.flatten(),
+          details: z.treeifyError(result.error),
         },
         400,
       ),
