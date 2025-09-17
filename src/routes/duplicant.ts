@@ -34,7 +34,7 @@ function validateDuplicantAliases(
     data.taskId !== data.task
   ) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       message: "task and taskId must match when both provided",
       path: ["task"],
     });
@@ -124,16 +124,16 @@ export function createDuplicantRoutes(database: Database = db) {
 
     const resolvedTaskId =
       taskId !== undefined
-        ? taskId ?? DEFAULT_IDLE_TASK_ID
+        ? (taskId ?? DEFAULT_IDLE_TASK_ID)
         : task !== undefined
-          ? task ?? DEFAULT_IDLE_TASK_ID
+          ? (task ?? DEFAULT_IDLE_TASK_ID)
           : DEFAULT_IDLE_TASK_ID;
 
     const resolvedScheduleId =
       scheduleId !== undefined
-        ? scheduleId ?? DEFAULT_SCHEDULE_ID
+        ? (scheduleId ?? DEFAULT_SCHEDULE_ID)
         : schedule !== undefined
-          ? schedule ?? DEFAULT_SCHEDULE_ID
+          ? (schedule ?? DEFAULT_SCHEDULE_ID)
           : DEFAULT_SCHEDULE_ID;
 
     // Default to the global "idle" task when not provided
