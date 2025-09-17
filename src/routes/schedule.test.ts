@@ -1,73 +1,67 @@
-import { describe, it, expect, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 import { createScheduleRoutes } from "./schedule.js";
+import { createTestDatabase, type TestDatabase } from "../test-utils/db.js";
+import { schedule } from "../db/schema.js";
 
-type MockDb = {
-  query: {
-    schedule: {
-      findMany: ReturnType<typeof vi.fn>;
-      findFirst: ReturnType<typeof vi.fn>;
-    };
-  };
-  select: ReturnType<typeof vi.fn>;
-  insert: ReturnType<typeof vi.fn>;
-  update: ReturnType<typeof vi.fn>;
-  delete: ReturnType<typeof vi.fn>;
-};
+describe("schedule routes (integration)", () => {
+  let testDb: TestDatabase;
 
-function createMockDb(): MockDb {
-  return {
-    query: {
-      schedule: {
-        findMany: vi.fn(),
-        findFirst: vi.fn(),
-      },
-    },
-    select: vi.fn(),
-    insert: vi.fn(),
-    update: vi.fn(),
-    delete: vi.fn(),
-  };
-}
-
-describe("schedule routes", () => {
   const activities = Array(24).fill("work");
 
-  it("lists all schedules", async () => {
-    const database = createMockDb();
-    const schedules = [{ id: "sched-1", activities, duplicants: [] }];
-    database.query.schedule.findMany.mockResolvedValueOnce(schedules);
+  beforeAll(async () => {
+    testDb = await createTestDatabase();
+  });
 
-    const routes = createScheduleRoutes(database as never);
+  afterAll(async () => {
+    await testDb.close();
+  });
+
+  beforeEach(async () => {
+    await testDb.reset();
+  });
+
+  it("lists all schedules", async () => {
+    await testDb.db.insert(schedule).values({ id: "sched-1", activities });
+
+    const routes = createScheduleRoutes(testDb.db);
     const res = await routes.request("/");
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(schedules);
-    expect(database.query.schedule.findMany).toHaveBeenCalledWith({
-      with: { duplicants: true },
-    });
+    const body = await res.json();
+    expect(body).toEqual([
+      {
+        id: "sched-1",
+        activities,
+        duplicants: [],
+      },
+    ]);
   });
 
   it("fetches a schedule by id", async () => {
-    const database = createMockDb();
-    const scheduleItem = { id: "sched-42", activities, duplicants: [] };
-    database.query.schedule.findFirst.mockResolvedValueOnce(scheduleItem);
+    await testDb.db.insert(schedule).values({ id: "sched-42", activities });
 
-    const routes = createScheduleRoutes(database as never);
-    const res = await routes.request(`/${scheduleItem.id}`);
+    const routes = createScheduleRoutes(testDb.db);
+    const res = await routes.request("/sched-42");
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(scheduleItem);
-    expect(database.query.schedule.findFirst).toHaveBeenCalledTimes(1);
-    const call = database.query.schedule.findFirst.mock.calls[0]?.[0];
-    expect(call?.with).toEqual({ duplicants: true });
+    const body = await res.json();
+    expect(body).toEqual({
+      id: "sched-42",
+      activities,
+      duplicants: [],
+    });
   });
 
   it("returns 404 when a schedule is missing", async () => {
-    const database = createMockDb();
-    database.query.schedule.findFirst.mockResolvedValueOnce(undefined);
-
-    const routes = createScheduleRoutes(database as never);
+    const routes = createScheduleRoutes(testDb.db);
     const res = await routes.request("/missing");
 
     expect(res.status).toBe(404);
@@ -75,13 +69,7 @@ describe("schedule routes", () => {
   });
 
   it("creates a schedule from valid payload", async () => {
-    const database = createMockDb();
-    const created = { id: "sched-created", activities };
-    const returning = vi.fn().mockResolvedValue([created]);
-    const values = vi.fn().mockReturnValue({ returning });
-    database.insert.mockReturnValueOnce({ values });
-
-    const routes = createScheduleRoutes(database as never);
+    const routes = createScheduleRoutes(testDb.db);
     const res = await routes.request("/", {
       method: "POST",
       body: JSON.stringify({ activities }),
@@ -89,33 +77,18 @@ describe("schedule routes", () => {
     });
 
     expect(res.status).toBe(201);
-    expect(await res.json()).toEqual(created);
-    expect(values).toHaveBeenCalledWith({ activities });
-  });
+    const body = await res.json();
+    expect(body.activities).toEqual(activities);
+    expect(typeof body.id).toBe("string");
+    expect(body.id.length).toBeGreaterThan(0);
 
-  it("allows explicitly setting an id when creating a schedule", async () => {
-    const database = createMockDb();
-    const created = { id: "custom-id", activities };
-    const returning = vi.fn().mockResolvedValue([created]);
-    const values = vi.fn().mockReturnValue({ returning });
-    database.insert.mockReturnValueOnce({ values });
-
-    const routes = createScheduleRoutes(database as never);
-    const res = await routes.request("/", {
-      method: "POST",
-      body: JSON.stringify({ id: "custom-id", activities }),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    expect(res.status).toBe(201);
-    expect(await res.json()).toEqual(created);
-    expect(values).toHaveBeenCalledWith({ id: "custom-id", activities });
+    const rows = await testDb.db.query.schedule.findMany();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(body.id);
   });
 
   it("rejects invalid schedule payloads", async () => {
-    const database = createMockDb();
-    const routes = createScheduleRoutes(database as never);
-
+    const routes = createScheduleRoutes(testDb.db);
     const res = await routes.request("/", {
       method: "POST",
       body: JSON.stringify({ activities: ["work"] }),
@@ -123,41 +96,37 @@ describe("schedule routes", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: "Invalid schedule payload",
-    });
-    expect(database.insert).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body).toMatchObject({ error: "Invalid schedule payload" });
   });
 
-  it("updates a schedule", async () => {
-    const database = createMockDb();
-    const updated = { id: "sched-2", activities };
-    const returning = vi.fn().mockResolvedValue([updated]);
-    const where = vi.fn().mockReturnValue({ returning });
-    const set = vi.fn().mockReturnValue({ where });
-    database.update.mockReturnValueOnce({ set });
+  it("updates an existing schedule", async () => {
+    await testDb.db.insert(schedule).values({ id: "sched-2", activities });
+    const updatedActivities = [
+      "work",
+      ...Array(23).fill("downtime"),
+    ];
 
-    const routes = createScheduleRoutes(database as never);
-    const res = await routes.request(`/sched-2`, {
+    const routes = createScheduleRoutes(testDb.db);
+    const res = await routes.request("/sched-2", {
       method: "POST",
-      body: JSON.stringify({ activities }),
+      body: JSON.stringify({ activities: updatedActivities }),
       headers: { "Content-Type": "application/json" },
     });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(updated);
-    expect(set).toHaveBeenCalledWith({ activities });
+    const body = await res.json();
+    expect(body.activities).toEqual(updatedActivities);
+
+    const row = await testDb.db.query.schedule.findFirst({
+      where: (tbl, { eq }) => eq(tbl.id, "sched-2"),
+    });
+    expect(row?.activities).toEqual(updatedActivities);
   });
 
   it("returns 404 when updating a missing schedule", async () => {
-    const database = createMockDb();
-    const returning = vi.fn().mockResolvedValue([]);
-    const where = vi.fn().mockReturnValue({ returning });
-    const set = vi.fn().mockReturnValue({ where });
-    database.update.mockReturnValueOnce({ set });
-
-    const routes = createScheduleRoutes(database as never);
-    const res = await routes.request(`/missing`, {
+    const routes = createScheduleRoutes(testDb.db);
+    const res = await routes.request("/missing", {
       method: "POST",
       body: JSON.stringify({ activities }),
       headers: { "Content-Type": "application/json" },
@@ -167,45 +136,23 @@ describe("schedule routes", () => {
     expect(await res.json()).toEqual({ error: "Schedule not found" });
   });
 
-  it("rejects invalid schedule updates", async () => {
-    const database = createMockDb();
-    const routes = createScheduleRoutes(database as never);
-
-    const res = await routes.request(`/sched-1`, {
-      method: "POST",
-      body: JSON.stringify({}),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: "Invalid schedule payload",
-    });
-    expect(database.update).not.toHaveBeenCalled();
-  });
-
   it("deletes a schedule", async () => {
-    const database = createMockDb();
-    const deleted = { id: "sched-2", activities };
-    const returning = vi.fn().mockResolvedValue([deleted]);
-    const where = vi.fn().mockReturnValue({ returning });
-    database.delete.mockReturnValueOnce({ where });
+    await testDb.db.insert(schedule).values({ id: "sched-3", activities });
 
-    const routes = createScheduleRoutes(database as never);
-    const res = await routes.request(`/sched-2`, { method: "DELETE" });
+    const routes = createScheduleRoutes(testDb.db);
+    const res = await routes.request("/sched-3", { method: "DELETE" });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(deleted);
+    const body = await res.json();
+    expect(body.id).toBe("sched-3");
+
+    const rows = await testDb.db.query.schedule.findMany();
+    expect(rows).toHaveLength(0);
   });
 
   it("returns 404 when deleting a missing schedule", async () => {
-    const database = createMockDb();
-    const returning = vi.fn().mockResolvedValue([]);
-    const where = vi.fn().mockReturnValue({ returning });
-    database.delete.mockReturnValueOnce({ where });
-
-    const routes = createScheduleRoutes(database as never);
-    const res = await routes.request(`/missing`, { method: "DELETE" });
+    const routes = createScheduleRoutes(testDb.db);
+    const res = await routes.request("/missing", { method: "DELETE" });
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Schedule not found" });

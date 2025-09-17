@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 import {
   DEFAULT_IDLE_TASK_ID,
@@ -7,70 +14,75 @@ import {
   ensureDefaultIdleTask,
   ensureDefaultSchedule,
 } from "./index.js";
-
-type MockDb = {
-  select: ReturnType<typeof vi.fn>;
-  insert: ReturnType<typeof vi.fn>;
-};
-
-function createDbMock(existing: Array<{ id: string }> = []): MockDb & {
-  selectFrom: ReturnType<typeof vi.fn>;
-  selectWhere: ReturnType<typeof vi.fn>;
-  values: ReturnType<typeof vi.fn>;
-} {
-  const selectWhere = vi.fn().mockResolvedValue(existing);
-  const selectFrom = vi.fn().mockReturnValue({ where: selectWhere });
-  const select = vi.fn().mockReturnValue({ from: selectFrom });
-
-  const values = vi.fn().mockResolvedValue(undefined);
-  const insert = vi.fn().mockReturnValue({ values });
-
-  return { select, insert, selectFrom, selectWhere, values };
-}
+import { createTestDatabase, type TestDatabase } from "../test-utils/db.js";
+import { schedule, task } from "./schema.js";
 
 describe("database defaults", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
+  let testDb: TestDatabase;
+
+  beforeAll(async () => {
+    testDb = await createTestDatabase();
+  });
+
+  afterAll(async () => {
+    await testDb.close();
+  });
+
+  beforeEach(async () => {
+    await testDb.reset();
   });
 
   it("inserts the default schedule when missing", async () => {
-    const mock = createDbMock([]);
+    await ensureDefaultSchedule(testDb.db as any);
 
-    await ensureDefaultSchedule(mock as unknown as never);
-
-    expect(mock.selectWhere).toHaveBeenCalledTimes(1);
-    expect(mock.values).toHaveBeenCalledWith({
-      id: DEFAULT_SCHEDULE_ID,
-      activities: DEFAULT_SCHEDULE_ACTIVITIES,
-    });
+    const rows = await testDb.db.query.schedule.findMany();
+    expect(rows).toEqual([
+      {
+        id: DEFAULT_SCHEDULE_ID,
+        activities: DEFAULT_SCHEDULE_ACTIVITIES,
+      },
+    ]);
   });
 
   it("does not insert the default schedule when it already exists", async () => {
-    const mock = createDbMock([{ id: DEFAULT_SCHEDULE_ID }]);
+    await testDb.db.insert(schedule).values({
+      id: DEFAULT_SCHEDULE_ID,
+      activities: DEFAULT_SCHEDULE_ACTIVITIES,
+    });
 
-    await ensureDefaultSchedule(mock as unknown as never);
+    await ensureDefaultSchedule(testDb.db as any);
 
-    expect(mock.values).not.toHaveBeenCalled();
+    const rows = await testDb.db.query.schedule.findMany();
+    expect(rows).toHaveLength(1);
   });
 
   it("inserts the default idle task when missing", async () => {
-    const mock = createDbMock([]);
+    await ensureDefaultIdleTask(testDb.db as any);
 
-    await ensureDefaultIdleTask(mock as unknown as never);
+    const rows = await testDb.db.query.task.findMany();
+    expect(rows).toEqual([
+      {
+        id: DEFAULT_IDLE_TASK_ID,
+        description: "Idle",
+        skillId: "idle",
+        targetId: null,
+        duplicantId: null,
+        createdAt: expect.any(Date),
+      },
+    ]);
+  });
 
-    expect(mock.values).toHaveBeenCalledWith({
+  it("does not insert the default idle task when present", async () => {
+    await testDb.db.insert(task).values({
       id: DEFAULT_IDLE_TASK_ID,
       description: "Idle",
       skillId: "idle",
       targetId: null,
     });
-  });
 
-  it("does not insert the default idle task when present", async () => {
-    const mock = createDbMock([{ id: DEFAULT_IDLE_TASK_ID }]);
+    await ensureDefaultIdleTask(testDb.db as any);
 
-    await ensureDefaultIdleTask(mock as unknown as never);
-
-    expect(mock.values).not.toHaveBeenCalled();
+    const rows = await testDb.db.query.task.findMany();
+    expect(rows).toHaveLength(1);
   });
 });

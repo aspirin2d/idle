@@ -291,16 +291,22 @@ export function createInventoryRoutes(database: Database = db) {
 
         // Swap if allowed
         if (allowSwap) {
-          const [movedFrom] = await tx
+          // Use a temporary slot to avoid unique constraint violations during swap
+          await tx
             .update(inventory)
-            .set({ slot: toSlot })
-            .where(eq(inventory.id, from.id))
-            .returning();
+            .set({ slot: -1 })
+            .where(eq(inventory.id, from.id));
 
           const [movedTo] = await tx
             .update(inventory)
             .set({ slot: fromSlot })
             .where(eq(inventory.id, to.id))
+            .returning();
+
+          const [movedFrom] = await tx
+            .update(inventory)
+            .set({ slot: toSlot })
+            .where(eq(inventory.id, from.id))
             .returning();
 
           return { action: "swap", a: movedFrom, b: movedTo };

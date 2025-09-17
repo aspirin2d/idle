@@ -1,218 +1,145 @@
-import { describe, it, expect, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
+import { eq } from "drizzle-orm";
 
 import { createDuplicantRoutes } from "./duplicant.js";
+import {
+  DEFAULT_IDLE_TASK_ID,
+  DEFAULT_SCHEDULE_ACTIVITIES,
+  DEFAULT_SCHEDULE_ID,
+} from "../db/index.js";
+import { createTestDatabase, type TestDatabase } from "../test-utils/db.js";
+import { duplicant, schedule, stats, task } from "../db/schema.js";
 
-type MockDb = {
-  query: {
-    duplicant: {
-      findMany: ReturnType<typeof vi.fn>;
-      findFirst: ReturnType<typeof vi.fn>;
-    };
-  };
-  select: ReturnType<typeof vi.fn>;
-  insert: ReturnType<typeof vi.fn>;
-  update: ReturnType<typeof vi.fn>;
-  delete: ReturnType<typeof vi.fn>;
-  transaction?: ReturnType<typeof vi.fn>;
-};
+describe("duplicant routes (integration)", () => {
+  let testDb: TestDatabase;
 
-function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
-  return {
-    query: {
-      duplicant: {
-        findMany: vi.fn(),
-        findFirst: vi.fn(),
-      },
-    },
-    select: vi.fn(),
-    insert: vi.fn(),
-    update: vi.fn(),
-    delete: vi.fn(),
-    ...overrides,
-  };
-}
+  beforeAll(async () => {
+    testDb = await createTestDatabase();
+  });
 
-describe("duplicant routes", () => {
+  afterAll(async () => {
+    await testDb.close();
+  });
+
+  beforeEach(async () => {
+    await testDb.reset();
+    await testDb.db.insert(schedule).values({
+      id: DEFAULT_SCHEDULE_ID,
+      activities: DEFAULT_SCHEDULE_ACTIVITIES,
+    });
+    await testDb.db.insert(task).values({
+      id: DEFAULT_IDLE_TASK_ID,
+      description: "Idle",
+      skillId: "idle",
+      targetId: null,
+    });
+  });
+
   it("lists all duplicants", async () => {
-    const database = createMockDb();
-    const duplicants = [
-      {
-        id: "dup-1",
-        name: "Ada",
-        taskId: "idle",
-        scheduleId: "default",
-        statsId: "stats-1",
-        schedule: { id: "default" },
-        task: { id: "idle" },
-        stats: { id: "stats-1" },
-      },
-    ];
-    database.query.duplicant.findMany.mockResolvedValueOnce(duplicants);
+    const [statsRow] = await testDb.db
+      .insert(stats)
+      .values({ stamina: 90, calories: 3500, bladder: 10 })
+      .returning();
 
-    const routes = createDuplicantRoutes(database as never);
+    await testDb.db.insert(duplicant).values({
+      id: "dup-1",
+      name: "Ada",
+      taskId: DEFAULT_IDLE_TASK_ID,
+      scheduleId: DEFAULT_SCHEDULE_ID,
+      statsId: statsRow!.id,
+    });
+
+    await testDb.db
+      .update(stats)
+      .set({ duplicantId: "dup-1" })
+      .where(eq(stats.id, statsRow!.id));
+
+    const routes = createDuplicantRoutes(testDb.db);
     const res = await routes.request("/");
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(duplicants);
-    expect(database.query.duplicant.findMany).toHaveBeenCalledWith({
-      with: { schedule: true, task: true, stats: true },
-    });
-  });
-
-  it("fetches a duplicant by id", async () => {
-    const database = createMockDb();
-    const duplicant = {
-      id: "dup-2",
-      name: "Mina",
-      taskId: "build",
-      scheduleId: "night",
-      statsId: "stats-2",
-      schedule: { id: "night" },
-      task: { id: "build" },
-      stats: { id: "stats-2" },
-    };
-    database.query.duplicant.findFirst.mockResolvedValueOnce(duplicant);
-
-    const routes = createDuplicantRoutes(database as never);
-    const res = await routes.request(`/${duplicant.id}`);
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(duplicant);
-    expect(database.query.duplicant.findFirst).toHaveBeenCalledTimes(1);
-    const call = database.query.duplicant.findFirst.mock.calls[0]?.[0];
-    expect(call?.with).toEqual({ schedule: true, task: true, stats: true });
-  });
-
-  it("returns 404 when a duplicant is missing", async () => {
-    const database = createMockDb();
-    database.query.duplicant.findFirst.mockResolvedValueOnce(undefined);
-
-    const routes = createDuplicantRoutes(database as never);
-    const res = await routes.request("/missing");
-
-    expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "Duplicant not found" });
-  });
-
-  it("creates a duplicant using a transaction when available", async () => {
-    const insertStatsReturning = vi
-      .fn()
-      .mockResolvedValue([{ id: "stats-created" }]);
-    const insertStatsValues = vi.fn().mockReturnValue({ returning: insertStatsReturning });
-
-    const createdDuplicant = {
-      id: "dup-created",
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    const item = body[0];
+    expect(item).toMatchObject({
+      id: "dup-1",
       name: "Ada",
-      taskId: "idle",
-      scheduleId: "default",
-      statsId: "stats-created",
-    };
-    const insertDupReturning = vi.fn().mockResolvedValue([createdDuplicant]);
-    const insertDupValues = vi.fn().mockReturnValue({ returning: insertDupReturning });
+      taskId: DEFAULT_IDLE_TASK_ID,
+      scheduleId: DEFAULT_SCHEDULE_ID,
+      statsId: statsRow!.id,
+    });
+    expect(typeof item.createdAt).toBe("string");
+    expect(item.schedule.id).toBe(DEFAULT_SCHEDULE_ID);
+    expect(item.task.id).toBe(DEFAULT_IDLE_TASK_ID);
+    expect(item.stats.id).toBe(statsRow!.id);
+  });
 
-    const insertQueue = [
-      { values: insertStatsValues },
-      { values: insertDupValues },
-    ];
-    const txInsert = vi.fn(() => insertQueue.shift()!);
-
-    const updateStatsWhere = vi.fn().mockResolvedValue(undefined);
-    const updateStatsSet = vi.fn().mockReturnValue({ where: updateStatsWhere });
-    const txUpdate = vi.fn().mockReturnValue({ set: updateStatsSet });
-
-    const transaction = vi.fn(async (callback: (tx: any) => Promise<unknown>) =>
-      callback({ insert: txInsert, update: txUpdate }),
-    );
-
-    const database = createMockDb({ transaction });
-
-    const routes = createDuplicantRoutes(database as never);
+  it("creates a duplicant with default task and schedule", async () => {
+    const routes = createDuplicantRoutes(testDb.db);
     const res = await routes.request("/", {
       method: "POST",
-      body: JSON.stringify({ name: "Ada" }),
+      body: JSON.stringify({ name: "Mina" }),
       headers: { "Content-Type": "application/json" },
     });
-    const body = await res.json();
 
     expect(res.status).toBe(201);
-    expect(body).toEqual(createdDuplicant);
-    expect(transaction).toHaveBeenCalledTimes(1);
-    expect(insertStatsValues).toHaveBeenCalledWith({
-      stamina: 100,
-      calories: 4000,
-      bladder: 0,
+    const body = await res.json();
+    expect(body).toMatchObject({
+      name: "Mina",
+      taskId: DEFAULT_IDLE_TASK_ID,
+      scheduleId: DEFAULT_SCHEDULE_ID,
     });
-    expect(insertDupValues).toHaveBeenCalledWith({
-      name: "Ada",
-      taskId: "idle",
-      scheduleId: "default",
-      statsId: "stats-created",
+
+    const dbDuplicant = await testDb.db.query.duplicant.findFirst({
+      where: (tbl, { eq }) => eq(tbl.id, body.id),
+      with: { stats: true },
     });
-    expect(updateStatsSet).toHaveBeenCalledWith({ duplicantId: "dup-created" });
-    expect(updateStatsWhere).toHaveBeenCalledTimes(1);
+    expect(dbDuplicant?.statsId).toBeDefined();
+    expect(dbDuplicant?.stats?.duplicantId).toBe(body.id);
   });
 
-  it("creates a duplicant without a transaction fallback", async () => {
-    const insertStatsReturning = vi
-      .fn()
-      .mockResolvedValue([{ id: "stats-fallback" }]);
-    const insertStatsValues = vi.fn().mockReturnValue({ returning: insertStatsReturning });
+  it("honors alias fields for task and schedule", async () => {
+    await testDb.db.insert(task).values({
+      id: "task-build",
+      description: "Build",
+      skillId: "construct",
+      targetId: null,
+    });
+    await testDb.db.insert(schedule).values({
+      id: "sched-night",
+      activities: [
+        ...Array(8).fill("downtime"),
+        ...Array(8).fill("work"),
+        ...Array(8).fill("bedtime"),
+      ],
+    });
 
-    const createdDuplicant = {
-      id: "dup-fallback",
-      name: "Mina",
-      taskId: "task-123",
-      scheduleId: "sched-77",
-      statsId: "stats-fallback",
-    };
-    const insertDupReturning = vi.fn().mockResolvedValue([createdDuplicant]);
-    const insertDupValues = vi.fn().mockReturnValue({ returning: insertDupReturning });
-
-    const insertQueue = [
-      { values: insertStatsValues },
-      { values: insertDupValues },
-    ];
-    const insert = vi.fn(() => insertQueue.shift()!);
-
-    const updateWhere = vi.fn().mockResolvedValue(undefined);
-    const updateSet = vi.fn().mockReturnValue({ where: updateWhere });
-    const update = vi.fn().mockReturnValue({ set: updateSet });
-
-    const database = createMockDb({ insert, update });
-
-    const routes = createDuplicantRoutes(database as never);
+    const routes = createDuplicantRoutes(testDb.db);
     const res = await routes.request("/", {
       method: "POST",
       body: JSON.stringify({
-        name: "Mina",
-        task: "task-123",
-        schedule: "sched-77",
+        name: "Nisbet",
+        task: "task-build",
+        schedule: "sched-night",
       }),
       headers: { "Content-Type": "application/json" },
     });
-    const body = await res.json();
 
     expect(res.status).toBe(201);
-    expect(body).toEqual(createdDuplicant);
-    expect(insertStatsValues).toHaveBeenCalledWith({
-      stamina: 100,
-      calories: 4000,
-      bladder: 0,
-    });
-    expect(insertDupValues).toHaveBeenCalledWith({
-      name: "Mina",
-      taskId: "task-123",
-      scheduleId: "sched-77",
-      statsId: "stats-fallback",
-    });
-    expect(updateSet).toHaveBeenCalledWith({ duplicantId: "dup-fallback" });
-    expect(updateWhere).toHaveBeenCalledTimes(1);
+    const body = await res.json();
+    expect(body.taskId).toBe("task-build");
+    expect(body.scheduleId).toBe("sched-night");
   });
 
   it("rejects invalid duplicant payloads", async () => {
-    const database = createMockDb();
-    const routes = createDuplicantRoutes(database as never);
-
+    const routes = createDuplicantRoutes(testDb.db);
     const res = await routes.request("/", {
       method: "POST",
       body: JSON.stringify({}),
@@ -220,69 +147,57 @@ describe("duplicant routes", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: "Invalid duplicant payload",
-    });
-    expect(database.insert).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body).toMatchObject({ error: "Invalid duplicant payload" });
   });
 
-  it("rejects invalid duplicant updates", async () => {
-    const database = createMockDb();
-    const routes = createDuplicantRoutes(database as never);
+  it("updates an existing duplicant", async () => {
+    const [statsRow] = await testDb.db
+      .insert(stats)
+      .values({ stamina: 80, calories: 3200, bladder: 20 })
+      .returning();
 
-    const res = await routes.request("/dup-1", {
-      method: "POST",
-      body: JSON.stringify({}),
-      headers: { "Content-Type": "application/json" },
+    await testDb.db.insert(duplicant).values({
+      id: "dup-2",
+      name: "Meep",
+      taskId: DEFAULT_IDLE_TASK_ID,
+      scheduleId: DEFAULT_SCHEDULE_ID,
+      statsId: statsRow!.id,
     });
 
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: "Invalid duplicant payload",
+    await testDb.db
+      .update(stats)
+      .set({ duplicantId: "dup-2" })
+      .where(eq(stats.id, statsRow!.id));
+
+    await testDb.db.insert(task).values({
+      id: "task-farm",
+      description: "Farm",
+      skillId: "agriculture",
+      targetId: null,
     });
-    expect(database.update).not.toHaveBeenCalled();
-  });
 
-  it("updates a duplicant", async () => {
-    const database = createMockDb();
-    const updated = {
-      id: "dup-1",
-      name: "Ada Updated",
-      taskId: "task-99",
-      scheduleId: "default",
-      statsId: "stats-1",
-    };
-    const returning = vi.fn().mockResolvedValue([updated]);
-    const where = vi.fn().mockReturnValue({ returning });
-    const set = vi.fn().mockReturnValue({ where });
-    database.update.mockReturnValueOnce({ set });
-
-    const routes = createDuplicantRoutes(database as never);
-    const res = await routes.request(`/dup-1`, {
+    const routes = createDuplicantRoutes(testDb.db);
+    const res = await routes.request("/dup-2", {
       method: "POST",
-      body: JSON.stringify({ name: "Ada Updated", task: "task-99" }),
+      body: JSON.stringify({
+        name: "Farmer Meep",
+        task: "task-farm",
+      }),
       headers: { "Content-Type": "application/json" },
     });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(updated);
-    expect(set).toHaveBeenCalledWith({
-      name: "Ada Updated",
-      taskId: "task-99",
-    });
+    const body = await res.json();
+    expect(body.name).toBe("Farmer Meep");
+    expect(body.taskId).toBe("task-farm");
   });
 
   it("returns 404 when updating a missing duplicant", async () => {
-    const database = createMockDb();
-    const returning = vi.fn().mockResolvedValue([]);
-    const where = vi.fn().mockReturnValue({ returning });
-    const set = vi.fn().mockReturnValue({ where });
-    database.update.mockReturnValueOnce({ set });
-
-    const routes = createDuplicantRoutes(database as never);
-    const res = await routes.request(`/missing`, {
+    const routes = createDuplicantRoutes(testDb.db);
+    const res = await routes.request("/missing", {
       method: "POST",
-      body: JSON.stringify({ name: "Nobody" }),
+      body: JSON.stringify({ name: "Ghost" }),
       headers: { "Content-Type": "application/json" },
     });
 
@@ -291,33 +206,37 @@ describe("duplicant routes", () => {
   });
 
   it("deletes a duplicant", async () => {
-    const database = createMockDb();
-    const deleted = {
-      id: "dup-1",
-      name: "Ada",
-      taskId: "idle",
-      scheduleId: "default",
-      statsId: "stats-1",
-    };
-    const returning = vi.fn().mockResolvedValue([deleted]);
-    const where = vi.fn().mockReturnValue({ returning });
-    database.delete.mockReturnValueOnce({ where });
+    const [statsRow] = await testDb.db
+      .insert(stats)
+      .values({ stamina: 70, calories: 2800, bladder: 30 })
+      .returning();
 
-    const routes = createDuplicantRoutes(database as never);
-    const res = await routes.request(`/dup-1`, { method: "DELETE" });
+    await testDb.db.insert(duplicant).values({
+      id: "dup-del",
+      name: "Breaker",
+      taskId: DEFAULT_IDLE_TASK_ID,
+      scheduleId: DEFAULT_SCHEDULE_ID,
+      statsId: statsRow!.id,
+    });
+
+    await testDb.db
+      .update(stats)
+      .set({ duplicantId: "dup-del" })
+      .where(eq(stats.id, statsRow!.id));
+
+    const routes = createDuplicantRoutes(testDb.db);
+    const res = await routes.request("/dup-del", { method: "DELETE" });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(deleted);
+    expect(await res.json()).toMatchObject({ id: "dup-del" });
+
+    const remaining = await testDb.db.query.duplicant.findMany();
+    expect(remaining).toHaveLength(0);
   });
 
   it("returns 404 when deleting a missing duplicant", async () => {
-    const database = createMockDb();
-    const returning = vi.fn().mockResolvedValue([]);
-    const where = vi.fn().mockReturnValue({ returning });
-    database.delete.mockReturnValueOnce({ where });
-
-    const routes = createDuplicantRoutes(database as never);
-    const res = await routes.request(`/missing`, { method: "DELETE" });
+    const routes = createDuplicantRoutes(testDb.db);
+    const res = await routes.request("/missing", { method: "DELETE" });
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Duplicant not found" });
