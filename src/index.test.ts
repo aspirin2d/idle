@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+import { resolvePort } from "./lib/resolve-port.js";
+
 const serveMock = vi.fn();
 const ensureDefaultScheduleMock = vi.fn();
 const ensureDefaultIdleTaskMock = vi.fn();
@@ -113,5 +115,18 @@ describe("index", () => {
     expect(opts.port).toBe(3000);
     expect(ensureDefaultScheduleMock).toHaveBeenCalled();
     expect(ensureDefaultIdleTaskMock).toHaveBeenCalled();
+  });
+});
+
+describe("resolvePort", () => {
+  it("returns parsed port when provided", () => {
+    expect(resolvePort("8080")).toBe(8080);
+  });
+
+  it("falls back when value is missing, empty, or invalid", () => {
+    expect(resolvePort(undefined)).toBe(3000);
+    expect(resolvePort(null)).toBe(3000);
+    expect(resolvePort("   ")).toBe(3000);
+    expect(resolvePort("not-a-number")).toBe(3000);
   });
 });

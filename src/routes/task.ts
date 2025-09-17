@@ -31,7 +31,7 @@ function validateTaskAliases(data: TaskAliasInput, ctx: z.RefinementCtx) {
     data.skillId !== data.skill
   ) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       message: "skill and skillId must match when both provided",
       path: ["skill"],
     });
@@ -43,7 +43,7 @@ function validateTaskAliases(data: TaskAliasInput, ctx: z.RefinementCtx) {
     data.targetId !== data.target
   ) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       message: "target and targetId must match when both provided",
       path: ["target"],
     });
@@ -59,26 +59,24 @@ const taskCreateSchema = taskBaseObject
 
     if (data.skillId == null && data.skill == null) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "skillId is required",
         path: ["skillId"],
       });
     }
   });
 
-const taskUpdateSchema = taskBaseObject
-  .partial()
-  .superRefine((data, ctx) => {
-    if (!Object.values(data).some((value) => value !== undefined)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "At least one field must be provided",
-        path: [],
-      });
-    }
+const taskUpdateSchema = taskBaseObject.partial().superRefine((data, ctx) => {
+  if (!Object.values(data).some((value) => value !== undefined)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "At least one field must be provided",
+      path: [],
+    });
+  }
 
-    validateTaskAliases(data, ctx);
-  });
+  validateTaskAliases(data, ctx);
+});
 
 export function createTaskRoutes(database: Database = db) {
   const routes = new Hono();
@@ -119,11 +117,7 @@ export function createTaskRoutes(database: Database = db) {
     const { id, skillId, skill, targetId, target, ...rest } = parsed.data;
     const resolvedSkillId = skillId ?? skill!;
     const resolvedTargetId =
-      targetId !== undefined
-        ? targetId
-        : target !== undefined
-          ? target
-          : null;
+      targetId !== undefined ? targetId : target !== undefined ? target : null;
 
     const values: NewTask = {
       description: rest.description,
@@ -158,7 +152,11 @@ export function createTaskRoutes(database: Database = db) {
     }
 
     const resolvedTarget =
-      targetId !== undefined ? targetId : target !== undefined ? target : undefined;
+      targetId !== undefined
+        ? targetId
+        : target !== undefined
+          ? target
+          : undefined;
     if (resolvedTarget !== undefined) {
       updateData.targetId = resolvedTarget ?? null;
     }

@@ -8,6 +8,7 @@ import { api } from "./routes/api.js";
 import { ensureItemDefsSyncedOnStart } from "./lib/items.js";
 import { ensureSkillTargetDefsSyncedOnStart } from "./lib/skill-targets.js";
 import { ensureSkillDefsSyncedOnStart } from "./lib/skills.js";
+import { resolvePort } from "./lib/resolve-port.js";
 
 const app = new Hono();
 
@@ -16,14 +17,16 @@ app.route("/api/v1", api);
 
 export { app, api };
 
-const defaultPort = parseInt(process.env.PORT ?? "3000");
+const defaultPort = resolvePort(process.env.PORT);
 
 // Ensure defaults before serving
+/* c8 ignore start */
 await ensureDefaultSchedule();
 await ensureDefaultIdleTask();
 await ensureItemDefsSyncedOnStart();
 await ensureSkillDefsSyncedOnStart();
 await ensureSkillTargetDefsSyncedOnStart();
+/* c8 ignore end */
 
 serve({ fetch: app.fetch, port: defaultPort }, (info) =>
   console.log(`Server is running on http://localhost:${info.port}`),

@@ -7,12 +7,13 @@ import {
   it,
 } from "vitest";
 
-import {
+import db, {
   DEFAULT_IDLE_TASK_ID,
   DEFAULT_SCHEDULE_ACTIVITIES,
   DEFAULT_SCHEDULE_ID,
   ensureDefaultIdleTask,
   ensureDefaultSchedule,
+  setDefaultDatabase,
 } from "./index.js";
 import { createTestDatabase, type TestDatabase } from "../test-utils/db.js";
 import { schedule, task } from "./schema.js";
@@ -22,9 +23,11 @@ describe("database defaults", () => {
 
   beforeAll(async () => {
     testDb = await createTestDatabase();
+    setDefaultDatabase(testDb.db as any);
   });
 
   afterAll(async () => {
+    setDefaultDatabase(db as any);
     await testDb.close();
   });
 
@@ -84,5 +87,18 @@ describe("database defaults", () => {
 
     const rows = await testDb.db.query.task.findMany();
     expect(rows).toHaveLength(1);
+  });
+
+  it("falls back to the global database when omitted", async () => {
+    await testDb.reset();
+
+    await ensureDefaultSchedule();
+    await ensureDefaultIdleTask();
+
+    const schedules = await testDb.db.query.schedule.findMany();
+    expect(schedules).toHaveLength(1);
+
+    const tasks = await testDb.db.query.task.findMany();
+    expect(tasks).toHaveLength(1);
   });
 });

@@ -55,9 +55,20 @@ export async function createTestDatabase() {
   const db = drizzle({ client, schema });
 
   async function reset() {
-    await client.exec("DROP SCHEMA public CASCADE;");
-    await client.exec("CREATE SCHEMA public;");
-    await applyMigrations(client);
+    const tables = [
+      "inventory",
+      "stats",
+      "duplicant",
+      "task",
+      "schedule",
+      "skill_target_def",
+      "skill_def",
+      "item_def",
+    ];
+
+    for (const table of tables) {
+      await client.exec(`DELETE FROM "${table}";`);
+    }
   }
 
   async function close() {

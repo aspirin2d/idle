@@ -1,3 +1,5 @@
+/* istanbul ignore file */
+
 import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 

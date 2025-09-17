@@ -5,7 +5,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "vitest run --root ./src"
+    "test": "vitest run --root ./src",
+    "test:coverage": "VITEST_COVERAGE=true vitest run --root ./src --coverage"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.8",
@@ -18,8 +19,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.17",
-    "drizzle-kit": "^0.31.4",
+    "@vitest/coverage-istanbul": "3.2.4",
     "@vitest/coverage-v8": "^3.2.4",
+    "drizzle-kit": "^0.31.4",
     "tsx": "^4.7.1",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

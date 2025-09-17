@@ -46,7 +46,7 @@ function validateDuplicantAliases(
     data.scheduleId !== data.schedule
   ) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       message: "schedule and scheduleId must match when both provided",
       path: ["schedule"],
     });
@@ -66,7 +66,7 @@ const duplicantUpdateSchema = duplicantBaseObject
   .superRefine((data, ctx) => {
     if (!Object.values(data).some((value) => value !== undefined)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "At least one field must be provided",
         path: [],
       });
