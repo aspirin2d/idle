@@ -1,5 +1,3 @@
-/* c8 ignore file */
-
 import {
   pgEnum,
   pgTable,
@@ -110,12 +108,10 @@ export const inventory = pgTable(
       .$defaultFn(() => nanoid()),
     duplicantId: text("duplicant_id")
       .notNull()
-      /* c8 ignore next */
       .references(() => duplicant.id, { onDelete: "cascade" }),
     slot: smallint("slot").notNull(), // 0-based slot index
     itemId: text("item_id")
       .notNull()
-      /* c8 ignore next */
       .references(() => itemDef.id, { onDelete: "restrict" }),
     qty: smallint("qty").notNull().default(1), // 1..stackMax
     // optional for tools/equipment
@@ -126,7 +122,6 @@ export const inventory = pgTable(
   },
   (t) => [
     // one stack per (duplicant, slot)
-    /* c8 ignore start */
     uniqueIndex("uniq_dup_slot").on(t.duplicantId, t.slot),
     index("idx_dup_inv_dup").on(t.duplicantId),
     index("idx_dup_inv_item").on(t.itemId),
@@ -147,9 +142,7 @@ export const task = pgTable("task", {
   description: text("description").notNull(),
   skillId: text("skill_id").notNull(), // skill reference
   targetId: text("target_id"), // skill target reference
-  duplicantId: text("duplicant_id")
-    /* c8 ignore next */
-    .references(() => duplicant.id),
+  duplicantId: text("duplicant_id").references(() => duplicant.id),
   createdAt: timestamp("created_at", { withTimezone: false })
     .defaultNow()
     .notNull(),
@@ -162,11 +155,9 @@ export const stats = pgTable("stats", {
   stamina: smallint("stamina").notNull(),
   calories: smallint("calories").notNull(),
   bladder: smallint("bladder").notNull(),
-  duplicantId: text("duplicant_id")
-    /* c8 ignore next */
-    .references(() => duplicant.id, {
-      onDelete: "cascade",
-    }),
+  duplicantId: text("duplicant_id").references(() => duplicant.id, {
+    onDelete: "cascade",
+  }),
 });
 
 export const duplicant = pgTable("duplicant", {
@@ -219,7 +210,6 @@ export const duplicantRelations = relations(duplicant, ({ one }) => ({
     references: [stats.id],
   }),
 }));
-/* c8 ignore end */
 
 export type Duplicant = typeof duplicant.$inferSelect;
 export type NewDuplicant = typeof duplicant.$inferInsert;

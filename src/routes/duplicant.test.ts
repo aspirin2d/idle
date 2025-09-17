@@ -323,6 +323,9 @@ describe("duplicant routes (unit)", () => {
     expect(database.query.duplicant.findFirst).toHaveBeenCalledTimes(1);
     const call = database.query.duplicant.findFirst.mock.calls[0]?.[0];
     expect(call?.with).toEqual({ schedule: true, task: true, stats: true });
+    const eqSpy = vi.fn();
+    call?.where?.({ id: "table" } as never, { eq: eqSpy } as never);
+    expect(eqSpy).toHaveBeenCalledWith("table", duplicant.id);
   });
 
   it("returns 404 when a duplicant is missing", async () => {
@@ -392,7 +395,7 @@ describe("duplicant routes (unit)", () => {
     const insertStatsValues = vi.fn().mockReturnValue({ returning: insertStatsReturning });
 
     const createdDuplicant = {
-      id: "dup-created",
+      id: "dup-request",
       name: "Ada",
       taskId: "idle",
       scheduleId: "default",
@@ -420,7 +423,7 @@ describe("duplicant routes (unit)", () => {
     const routes = createDuplicantRoutes(database as never);
     const res = await routes.request("/", {
       method: "POST",
-      body: JSON.stringify({ name: "Ada" }),
+      body: JSON.stringify({ name: "Ada", id: "dup-request" }),
       headers: { "Content-Type": "application/json" },
     });
     const body = await res.json();
@@ -438,8 +441,9 @@ describe("duplicant routes (unit)", () => {
       taskId: "idle",
       scheduleId: "default",
       statsId: "stats-created",
+      id: "dup-request",
     });
-    expect(updateStatsSet).toHaveBeenCalledWith({ duplicantId: "dup-created" });
+    expect(updateStatsSet).toHaveBeenCalledWith({ duplicantId: "dup-request" });
     expect(updateStatsWhere).toHaveBeenCalledTimes(1);
   });
 
@@ -498,6 +502,160 @@ describe("duplicant routes (unit)", () => {
     });
     expect(updateSet).toHaveBeenCalledWith({ duplicantId: "dup-fallback" });
     expect(updateWhere).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates a duplicant with an explicit id when transactions are unavailable", async () => {
+    const insertStatsReturning = vi
+      .fn()
+      .mockResolvedValue([{ id: "stats-fallback-id" }]);
+    const insertStatsValues = vi.fn().mockReturnValue({ returning: insertStatsReturning });
+
+    const createdDuplicant = {
+      id: "dup-fallback-id",
+      name: "Mina",
+      taskId: "task-123",
+      scheduleId: "sched-77",
+      statsId: "stats-fallback-id",
+    };
+    const insertDupReturning = vi.fn().mockResolvedValue([createdDuplicant]);
+    const insertDupValues = vi.fn().mockReturnValue({ returning: insertDupReturning });
+
+    const insertQueue = [
+      { values: insertStatsValues },
+      { values: insertDupValues },
+    ];
+    const insert = vi.fn(() => insertQueue.shift()!);
+
+    const updateWhere = vi.fn().mockResolvedValue(undefined);
+    const updateSet = vi.fn().mockReturnValue({ where: updateWhere });
+    const update = vi.fn().mockReturnValue({ set: updateSet });
+
+    const database = createMockDb({ insert, update });
+
+    const routes = createDuplicantRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "dup-fallback-id",
+        name: "Mina",
+        taskId: "task-123",
+        scheduleId: "sched-77",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(body).toEqual(createdDuplicant);
+    expect(insertDupValues).toHaveBeenCalledWith({
+      name: "Mina",
+      taskId: "task-123",
+      scheduleId: "sched-77",
+      statsId: "stats-fallback-id",
+      id: "dup-fallback-id",
+    });
+  });
+
+  it("defaults alias ids when create payload uses null identifiers", async () => {
+    const insertStatsReturning = vi
+      .fn()
+      .mockResolvedValue([{ id: "stats-null" }]);
+    const insertStatsValues = vi.fn().mockReturnValue({ returning: insertStatsReturning });
+
+    const createdDuplicant = {
+      id: "dup-null",
+      name: "Ada",
+      taskId: DEFAULT_IDLE_TASK_ID,
+      scheduleId: DEFAULT_SCHEDULE_ID,
+      statsId: "stats-null",
+    };
+    const insertDupReturning = vi.fn().mockResolvedValue([createdDuplicant]);
+    const insertDupValues = vi.fn().mockReturnValue({ returning: insertDupReturning });
+
+    const insertQueue = [
+      { values: insertStatsValues },
+      { values: insertDupValues },
+    ];
+    const txInsert = vi.fn(() => insertQueue.shift()!);
+
+    const updateStatsWhere = vi.fn().mockResolvedValue(undefined);
+    const updateStatsSet = vi.fn().mockReturnValue({ where: updateStatsWhere });
+    const txUpdate = vi.fn().mockReturnValue({ set: updateStatsSet });
+
+    const transaction = vi.fn(async (callback: (tx: any) => Promise<unknown>) =>
+      callback({ insert: txInsert, update: txUpdate }),
+    );
+
+    const database = createMockDb({ transaction });
+
+    const routes = createDuplicantRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({ name: "Ada", taskId: null, scheduleId: null }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(body.taskId).toBe(DEFAULT_IDLE_TASK_ID);
+    expect(body.scheduleId).toBe(DEFAULT_SCHEDULE_ID);
+    expect(insertDupValues).toHaveBeenCalledWith({
+      name: "Ada",
+      taskId: DEFAULT_IDLE_TASK_ID,
+      scheduleId: DEFAULT_SCHEDULE_ID,
+      statsId: "stats-null",
+    });
+  });
+
+  it("defaults alias values when alias fields are null", async () => {
+    const insertStatsReturning = vi
+      .fn()
+      .mockResolvedValue([{ id: "stats-alias-null" }]);
+    const insertStatsValues = vi.fn().mockReturnValue({ returning: insertStatsReturning });
+
+    const createdDuplicant = {
+      id: "dup-alias-null",
+      name: "Ada",
+      taskId: DEFAULT_IDLE_TASK_ID,
+      scheduleId: DEFAULT_SCHEDULE_ID,
+      statsId: "stats-alias-null",
+    };
+    const insertDupReturning = vi.fn().mockResolvedValue([createdDuplicant]);
+    const insertDupValues = vi.fn().mockReturnValue({ returning: insertDupReturning });
+
+    const insertQueue = [
+      { values: insertStatsValues },
+      { values: insertDupValues },
+    ];
+    const txInsert = vi.fn(() => insertQueue.shift()!);
+
+    const updateStatsWhere = vi.fn().mockResolvedValue(undefined);
+    const updateStatsSet = vi.fn().mockReturnValue({ where: updateStatsWhere });
+    const txUpdate = vi.fn().mockReturnValue({ set: updateStatsSet });
+
+    const transaction = vi.fn(async (callback: (tx: any) => Promise<unknown>) =>
+      callback({ insert: txInsert, update: txUpdate }),
+    );
+
+    const database = createMockDb({ transaction });
+
+    const routes = createDuplicantRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({ name: "Ada", task: null, schedule: null }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(body.taskId).toBe(DEFAULT_IDLE_TASK_ID);
+    expect(body.scheduleId).toBe(DEFAULT_SCHEDULE_ID);
+    expect(insertDupValues).toHaveBeenCalledWith({
+      name: "Ada",
+      taskId: DEFAULT_IDLE_TASK_ID,
+      scheduleId: DEFAULT_SCHEDULE_ID,
+      statsId: "stats-alias-null",
+    });
   });
 
   it("rejects invalid duplicant payloads", async () => {
@@ -565,6 +723,81 @@ describe("duplicant routes (unit)", () => {
 
     expect(res.status).toBe(200);
     expect(set).toHaveBeenCalledWith({ scheduleId: "default" });
+  });
+
+  it("defaults task when updating with null alias", async () => {
+    const database = createMockDb();
+    const returning = vi.fn().mockResolvedValue([
+      {
+        id: "dup-5",
+        name: "Ada",
+        taskId: "idle",
+        scheduleId: "default",
+      },
+    ]);
+    const where = vi.fn().mockReturnValue({ returning });
+    const set = vi.fn().mockReturnValue({ where });
+    database.update.mockReturnValueOnce({ set });
+
+    const routes = createDuplicantRoutes(database as never);
+    const res = await routes.request("/dup-5", {
+      method: "POST",
+      body: JSON.stringify({ task: null }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(set).toHaveBeenCalledWith({ taskId: "idle" });
+  });
+
+  it("updates schedule when scheduleId is provided", async () => {
+    const database = createMockDb();
+    const updated = {
+      id: "dup-4",
+      name: "Ada",
+      taskId: "idle",
+      scheduleId: "sched-night",
+    };
+    const returning = vi.fn().mockResolvedValue([updated]);
+    const where = vi.fn().mockReturnValue({ returning });
+    const set = vi.fn().mockReturnValue({ where });
+    database.update.mockReturnValueOnce({ set });
+
+    const routes = createDuplicantRoutes(database as never);
+    const res = await routes.request("/dup-4", {
+      method: "POST",
+      body: JSON.stringify({ scheduleId: "sched-night" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updated);
+    expect(set).toHaveBeenCalledWith({ scheduleId: "sched-night" });
+  });
+
+  it("updates task when taskId is provided", async () => {
+    const database = createMockDb();
+    const updated = {
+      id: "dup-6",
+      name: "Ada",
+      taskId: "task-special",
+      scheduleId: "default",
+    };
+    const returning = vi.fn().mockResolvedValue([updated]);
+    const where = vi.fn().mockReturnValue({ returning });
+    const set = vi.fn().mockReturnValue({ where });
+    database.update.mockReturnValueOnce({ set });
+
+    const routes = createDuplicantRoutes(database as never);
+    const res = await routes.request("/dup-6", {
+      method: "POST",
+      body: JSON.stringify({ taskId: "task-special" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updated);
+    expect(set).toHaveBeenCalledWith({ taskId: "task-special" });
   });
 
   it("returns 404 when updating a missing duplicant", async () => {

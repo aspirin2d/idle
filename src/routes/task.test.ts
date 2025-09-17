@@ -353,6 +353,38 @@ describe("task routes (unit)", () => {
     });
   });
 
+  it("creates a task using targetId when provided", async () => {
+    const database = createMockDb();
+    const created = {
+      id: "task-target-id",
+      description: "Inspect",
+      skillId: "analysis",
+      targetId: "building-7",
+    };
+    const returning = vi.fn().mockResolvedValue([created]);
+    const values = vi.fn().mockReturnValue({ returning });
+    database.insert.mockReturnValueOnce({ values });
+
+    const routes = createTaskRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        description: "Inspect",
+        skillId: "analysis",
+        targetId: "building-7",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual(created);
+    expect(values).toHaveBeenCalledWith({
+      description: "Inspect",
+      skillId: "analysis",
+      targetId: "building-7",
+    });
+  });
+
   it("rejects invalid task payloads", async () => {
     const database = createMockDb();
     const routes = createTaskRoutes(database as never);
@@ -377,6 +409,25 @@ describe("task routes (unit)", () => {
     const res = await routes.request("/", {
       method: "POST",
       body: JSON.stringify({ description: "Build", skillId: "a", skill: "b" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "Invalid task payload" });
+  });
+
+  it("validates target alias mismatches", async () => {
+    const database = createMockDb();
+    const routes = createTaskRoutes(database as never);
+
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        description: "Inspect",
+        skillId: "analysis",
+        targetId: "room-a",
+        target: "room-b",
+      }),
       headers: { "Content-Type": "application/json" },
     });
 
@@ -450,6 +501,31 @@ describe("task routes (unit)", () => {
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Task not found" });
+  });
+
+  it("updates a task target when targetId is provided", async () => {
+    const database = createMockDb();
+    const updated = {
+      id: "task-4",
+      description: "Maintain",
+      skillId: "maint",
+      targetId: "machine-2",
+    };
+    const returning = vi.fn().mockResolvedValue([updated]);
+    const where = vi.fn().mockReturnValue({ returning });
+    const set = vi.fn().mockReturnValue({ where });
+    database.update.mockReturnValueOnce({ set });
+
+    const routes = createTaskRoutes(database as never);
+    const res = await routes.request(`/task-4`, {
+      method: "POST",
+      body: JSON.stringify({ targetId: "machine-2" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updated);
+    expect(set).toHaveBeenCalledWith({ targetId: "machine-2" });
   });
 
   it("rejects invalid task updates", async () => {

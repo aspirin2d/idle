@@ -5,8 +5,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "vitest run --root ./src",
-    "test:coverage": "VITEST_COVERAGE=true vitest run --root ./src --coverage"
+    "test": "vitest run",
+    "test:coverage": "VITEST_COVERAGE=true vitest run --coverage"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.8",

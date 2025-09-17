@@ -20,13 +20,11 @@ export { app, api };
 const defaultPort = resolvePort(process.env.PORT);
 
 // Ensure defaults before serving
-/* c8 ignore start */
 await ensureDefaultSchedule();
 await ensureDefaultIdleTask();
 await ensureItemDefsSyncedOnStart();
 await ensureSkillDefsSyncedOnStart();
 await ensureSkillTargetDefsSyncedOnStart();
-/* c8 ignore end */
 
 serve({ fetch: app.fetch, port: defaultPort }, (info) =>
   console.log(`Server is running on http://localhost:${info.port}`),
