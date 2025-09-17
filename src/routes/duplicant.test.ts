@@ -5,10 +5,13 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
+import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 
 import { createDuplicantRoutes } from "./duplicant.js";
+import { createDuplicantTickRoutes } from "./duplicant-tick.js";
 import {
   DEFAULT_IDLE_TASK_ID,
   DEFAULT_SCHEDULE_ACTIVITIES,
@@ -29,17 +32,25 @@ describe("duplicant routes", () => {
   const buildRoutes = (
     overrides?: (base: TestDatabase["db"]) => Record<string, unknown>,
   ) => {
-    if (!overrides) {
-      return createDuplicantRoutes(testDb.db);
-    }
     const base = testDb.db;
-    const proxy = Object.create(base);
-    Object.assign(proxy, overrides(base));
-    return createDuplicantRoutes(proxy as never);
+    const database = overrides
+      ? (Object.assign(
+          Object.create(base),
+          overrides(base),
+        ) as TestDatabase["db"])
+      : base;
+
+    const app = new Hono();
+    app.route("/", createDuplicantRoutes(database));
+    app.route("/", createDuplicantTickRoutes(database));
+    return app;
   };
 
   const insertStats = async () => {
-    const [statsRow] = await testDb.db.insert(stats).values(DEFAULT_STATS).returning();
+    const [statsRow] = await testDb.db
+      .insert(stats)
+      .values(DEFAULT_STATS)
+      .returning();
     return statsRow!;
   };
 
@@ -154,7 +165,9 @@ describe("duplicant routes", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ error: "Invalid duplicant payload" });
+    expect(await res.json()).toMatchObject({
+      error: "Invalid duplicant payload",
+    });
   });
 
   it("validates schedule alias mismatches", async () => {
@@ -171,7 +184,9 @@ describe("duplicant routes", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ error: "Invalid duplicant payload" });
+    expect(await res.json()).toMatchObject({
+      error: "Invalid duplicant payload",
+    });
   });
 
   it("requires at least one field when updating", async () => {
@@ -185,7 +200,9 @@ describe("duplicant routes", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ error: "Invalid duplicant payload" });
+    expect(await res.json()).toMatchObject({
+      error: "Invalid duplicant payload",
+    });
   });
 
   it("creates a duplicant using a transaction when available", async () => {
@@ -297,7 +314,9 @@ describe("duplicant routes", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ error: "Invalid duplicant payload" });
+    expect(await res.json()).toMatchObject({
+      error: "Invalid duplicant payload",
+    });
   });
 
   it("updates a duplicant", async () => {
@@ -402,6 +421,52 @@ describe("duplicant routes", () => {
       body: JSON.stringify({ name: "Ghost" }),
       headers: { "Content-Type": "application/json" },
     });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Duplicant not found" });
+  });
+
+  it("returns the elapsed window when ticking a duplicant", async () => {
+    const dup = await insertDuplicant();
+    const previousTick = new Date("2024-01-01T00:00:00.000Z");
+    await testDb.db
+      .update(duplicant)
+      .set({ updatedAt: previousTick })
+      .where(eq(duplicant.id, dup.id));
+
+    const nextTick = new Date("2024-01-01T00:10:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(nextTick);
+
+    try {
+      const routes = buildRoutes();
+      const res = await routes.request(`/${dup.id}/tick`, { method: "POST" });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({
+        duplicantId: dup.id,
+        window: {
+          start: previousTick.toISOString(),
+          end: nextTick.toISOString(),
+          duration: 10 * 60 * 1000,
+        },
+      });
+
+      const refreshed = await testDb.db.query.duplicant.findFirst({
+        where: (tbl, { eq }) => eq(tbl.id, dup.id),
+        columns: { updatedAt: true },
+      });
+
+      expect(refreshed?.updatedAt?.toISOString()).toBe(nextTick.toISOString());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns 404 when ticking a missing duplicant", async () => {
+    const routes = buildRoutes();
+    const res = await routes.request("/ghost/tick", { method: "POST" });
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Duplicant not found" });
