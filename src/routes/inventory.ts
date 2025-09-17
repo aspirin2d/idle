@@ -92,6 +92,13 @@ async function getStackById(database: Database, id: string) {
   return rows[0] ?? null;
 }
 
+function slotOf(stack: { slot?: number } | null | undefined) {
+  if (stack && typeof stack.slot === "number") {
+    return stack.slot;
+  }
+  return 0;
+}
+
 /* ------------------------------ Routes ------------------------------ */
 
 export function createInventoryRoutes(database: Database = db) {
@@ -114,11 +121,12 @@ export function createInventoryRoutes(database: Database = db) {
     }
 
     const rows = await whereQuery;
-    const sorted = Array.isArray(rows)
-      ? [...rows].sort((a, b) => (a?.slot ?? 0) - (b?.slot ?? 0))
-      : rows;
+    if (Array.isArray(rows)) {
+      const ordered = [...rows].sort((a, b) => slotOf(a) - slotOf(b));
+      return c.json(ordered);
+    }
 
-    return c.json(sorted);
+    return c.json(rows);
   });
 
   // Get a stack by id
