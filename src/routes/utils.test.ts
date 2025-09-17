@@ -37,6 +37,9 @@ describe("route utilities", () => {
 
     const result = await parseRequestBody(ctx as any, schema, "Bad request");
     expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected parseRequestBody to fail");
+    }
     const body = await result.response.json();
     expect(body).toEqual({ error: "Invalid JSON body" });
   });
@@ -47,6 +50,9 @@ describe("route utilities", () => {
 
     const result = await parseRequestBody(ctx as any, schema, "Bad request");
     expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected parseRequestBody to fail validation");
+    }
     const body = await result.response.json();
     expect(body.error).toBe("Bad request");
     expect(body.details).toBeDefined();
