@@ -5,6 +5,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 import { eq } from "drizzle-orm";
 
@@ -362,5 +363,375 @@ describe("inventory routes (integration)", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ id: stack!.id });
+  });
+});
+
+type MockDb = {
+  select: ReturnType<typeof vi.fn>;
+  insert: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
+  transaction?: ReturnType<typeof vi.fn>;
+};
+
+function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
+  return {
+    select: vi.fn(),
+    insert: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    ...overrides,
+  };
+}
+
+function mockSelectWhere<T>(database: MockDb, result: T) {
+  const where = vi.fn().mockResolvedValue(result);
+  const from = vi.fn().mockReturnValue({ where });
+  database.select.mockReturnValueOnce({ from });
+  return { from, where };
+}
+
+describe("inventory routes (unit)", () => {
+  it("requires the duplicant query parameter when listing stacks", async () => {
+    const database = createMockDb();
+    const routes = createInventoryRoutes(database as never);
+
+    const res = await routes.request("/");
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Missing 'duplicant' query param",
+    });
+    expect(database.select).not.toHaveBeenCalled();
+  });
+
+  it("lists inventory stacks for a duplicant", async () => {
+    const database = createMockDb();
+    const stacks = [
+      {
+        id: "stack-1",
+        duplicantId: "dup-1",
+        slot: 0,
+        itemId: "item-1",
+        qty: 2,
+        durability: 90,
+      },
+    ];
+    const { where } = mockSelectWhere(database, stacks);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/?duplicant=dup-1");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(stacks);
+    expect(where).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetches an inventory stack by id", async () => {
+    const database = createMockDb();
+    const stack = {
+      id: "stack-42",
+      duplicantId: "dup-1",
+      slot: 3,
+      itemId: "item-2",
+      qty: 1,
+      durability: 45,
+    };
+    const { where } = mockSelectWhere(database, [stack]);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request(`/${stack.id}`);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(stack);
+    expect(where).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 404 when fetching a missing inventory stack", async () => {
+    const database = createMockDb();
+    mockSelectWhere(database, []);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/missing");
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Inventory stack not found" });
+  });
+
+  it("creates a new stack in an empty slot", async () => {
+    const database = createMockDb();
+
+    const duplicantWhere = mockSelectWhere(database, [{ id: "dup-1" }]);
+    const itemWhere = mockSelectWhere(database, [
+      { id: "item-1", name: "Copper", stackMax: 5 },
+    ]);
+    const slotWhere = mockSelectWhere(database, []);
+
+    const created = {
+      id: "stack-created",
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 1,
+      durability: 80,
+    };
+    const returning = vi.fn().mockResolvedValue([created]);
+    const values = vi.fn().mockReturnValue({ returning });
+    database.insert.mockReturnValueOnce({ values });
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        slot: 0,
+        item: "item-1",
+        durability: 80,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual(created);
+    expect(duplicantWhere.where).toHaveBeenCalledTimes(1);
+    expect(itemWhere.where).toHaveBeenCalledTimes(1);
+    expect(slotWhere.where).toHaveBeenCalledTimes(1);
+    expect(values).toHaveBeenCalledWith({
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 1,
+      durability: 80,
+    });
+  });
+
+  it("rejects invalid inventory creation payloads", async () => {
+    const database = createMockDb();
+    const routes = createInventoryRoutes(database as never);
+
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "Invalid inventory payload" });
+    expect(database.insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects creating a stack when qty exceeds stackMax", async () => {
+    const database = createMockDb();
+
+    const duplicantWhere = mockSelectWhere(database, [{ id: "dup-1" }]);
+    const itemWhere = mockSelectWhere(database, [
+      { id: "item-1", name: "Copper", stackMax: 5 },
+    ]);
+    const slotWhere = mockSelectWhere(database, []);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        slot: 0,
+        item: "item-1",
+        qty: 10,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("qty exceeds stackMax"),
+    });
+    expect(duplicantWhere.where).toHaveBeenCalledTimes(1);
+    expect(itemWhere.where).toHaveBeenCalledTimes(1);
+    expect(slotWhere.where).not.toHaveBeenCalled();
+    expect(database.insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects creating a stack when slot is occupied", async () => {
+    const database = createMockDb();
+
+    mockSelectWhere(database, [{ id: "dup-1" }]);
+    mockSelectWhere(database, [
+      { id: "item-1", name: "Copper", stackMax: 5 },
+    ]);
+    mockSelectWhere(database, [
+      {
+        id: "stack-existing",
+        duplicantId: "dup-1",
+        slot: 0,
+        itemId: "item-1",
+        qty: 3,
+        durability: 100,
+      },
+    ]);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        slot: 0,
+        item: "item-1",
+        qty: 1,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Slot occupied. Use merge=true or move endpoint.",
+    });
+  });
+
+  it("rejects creating a stack when duplicant is missing", async () => {
+    const database = createMockDb();
+    mockSelectWhere(database, []);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "missing",
+        slot: 0,
+        item: "item-1",
+        qty: 1,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Duplicant not found" });
+  });
+
+  it("rejects creating a stack when item is missing", async () => {
+    const database = createMockDb();
+
+    mockSelectWhere(database, [{ id: "dup-1" }]);
+    mockSelectWhere(database, []);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        duplicant: "dup-1",
+        slot: 0,
+        item: "item-missing",
+        qty: 1,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Item definition not found" });
+  });
+
+  it("updates a stack payload", async () => {
+    const database = createMockDb();
+    const updated = {
+      id: "stack-1",
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 2,
+      durability: 75,
+    };
+    const returning = vi.fn().mockResolvedValue([updated]);
+    const where = vi.fn().mockReturnValue({ returning });
+    const set = vi.fn().mockReturnValue({ where });
+    database.update.mockReturnValueOnce({ set });
+
+    const itemDefinition = {
+      id: "item-1",
+      name: "Copper",
+      stackMax: 5,
+    };
+    const existing = {
+      id: "stack-1",
+      duplicantId: "dup-1",
+      slot: 0,
+      itemId: "item-1",
+      qty: 1,
+      durability: 60,
+    };
+    mockSelectWhere(database, [existing]);
+    mockSelectWhere(database, [itemDefinition]);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request(`/stack-1`, {
+      method: "POST",
+      body: JSON.stringify({ qty: 2, durability: 75 }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updated);
+    expect(set).toHaveBeenCalledWith({ qty: 2, durability: 75 });
+  });
+
+  it("rejects invalid stack updates", async () => {
+    const database = createMockDb();
+    mockSelectWhere(database, []);
+
+    const routes = createInventoryRoutes(database as never);
+
+    const res = await routes.request(`/stack-1`, {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "Invalid inventory payload" });
+    expect(database.update).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when updating a missing stack", async () => {
+    const database = createMockDb();
+    const returning = vi.fn().mockResolvedValue([]);
+    const where = vi.fn().mockReturnValue({ returning });
+    const set = vi.fn().mockReturnValue({ where });
+    database.update.mockReturnValueOnce({ set });
+    mockSelectWhere(database, []);
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request(`/missing`, {
+      method: "POST",
+      body: JSON.stringify({ qty: 1 }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Inventory stack not found" });
+  });
+
+  it("deletes a stack", async () => {
+    const database = createMockDb();
+    const deleted = { id: "stack-1" };
+    const returning = vi.fn().mockResolvedValue([deleted]);
+    const where = vi.fn().mockReturnValue({ returning });
+    database.delete.mockReturnValueOnce({ where });
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request(`/stack-1`, { method: "DELETE" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(deleted);
+  });
+
+  it("returns 404 when deleting a missing stack", async () => {
+    const database = createMockDb();
+    const returning = vi.fn().mockResolvedValue([]);
+    const where = vi.fn().mockReturnValue({ returning });
+    database.delete.mockReturnValueOnce({ where });
+
+    const routes = createInventoryRoutes(database as never);
+    const res = await routes.request(`/missing`, { method: "DELETE" });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Inventory stack not found" });
   });
 });
